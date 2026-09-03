@@ -56,13 +56,14 @@ Or use the helper script:
 
 ```text
 /pool_create                 Create a STD, Taiko, or Catch draft pool
-/pool_create_mania           Create a Mania draft pool
+/pool_create_mania           Create a Mania 4K or 7K draft pool (submode choice)
 /pool_view                   View a pool; a Draft includes an author-only Submit button
 /pool_edit                   Add or replace a map in your Draft/Unranked pool
 /pool_list                   List pools by status and mode
 /pool_delete                 Delete your Draft pool
 /pool_formats                Show required categories for a mode
 /pool_help                   Show the full pool-command reference
+/match_create                Create a no-rating Bancho lobby and in-game pick/ban
 ```
 
 Pools start as **Draft**. Press **Submit** on the creation or `/pool_view`
@@ -71,7 +72,24 @@ response to send the pool for review. Moderators use persistent **Rank** and
 restored when the bot restarts.
 
 Pool slots are shown in uppercase, for example `NM1`, `HD1`, `RC1`, and `TB`.
-Bancho multiplayer automation is planned, but is not yet implemented.
+Bancho map-start and result automation are planned, but are not yet implemented.
+
+## Test matches
+
+`/match_create` runs the first no-rating Bancho match flow. Supply two osu!
+usernames, a **Ranked** pool, and a format. The bot creates a multiplayer lobby,
+invites both players, rolls them, and accepts pick/ban slots only in the lobby
+chat. Each choice must be a single message such as `NM1`.
+
+Add the bot account's osu! username and its separate IRC password to private
+`.env` before using this command:
+
+```env
+BANCHO_USERNAME=your_osu_bot_username
+BANCHO_IRC_PASSWORD=your_osu_irc_password
+```
+
+This version does not change ratings or automate map starts yet.
 
 ## Migrating existing SQLite pools
 

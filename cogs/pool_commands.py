@@ -363,14 +363,14 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         print(f"🔎 Парсинг {slot.upper()} · beatmap {beatmap_id} · режим {mode.upper()}...")
         await asyncio.sleep(self.PARSE_DELAY_SECONDS)
         beatmap = await osu_manager.get_beatmap(beatmap_id)
-        target_mode = {'std': 'osu', 'taiko': 'taiko', 'ctb': 'ctb', 'mania': 'mania'}[mode]
+        target_mode = {'std': 'osu', 'taiko': 'taiko', 'ctb': 'ctb', 'mania': 'mania', 'mania4k': 'mania', 'mania7k': 'mania'}[mode]
         # The ID must be a difficulty playable in the pool's target ruleset.
         # A mania difficulty must never silently become a STD pool map (and
         # vice versa).  Standard-origin converts in the other modes still
         # pass: their API difficulty mode is already the target ruleset.
         if beatmap['mode'] != target_mode:
             mode_labels = {
-                'std': 'STD', 'taiko': 'Taiko', 'ctb': 'CTB', 'mania': 'Mania',
+                'std': 'STD', 'taiko': 'Taiko', 'ctb': 'CTB', 'mania': 'Mania', 'mania4k': 'Mania 4K', 'mania7k': 'Mania 7K',
                 'osu': 'STD', 'fruits': 'CTB',
             }
             raise ValueError(
@@ -635,8 +635,13 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             fm=freemods, tb=tiebreaker,
         )
 
-    @app_commands.command(name="pool_create_mania", description="Создать Mania-пул")
+    @app_commands.command(name="pool_create_mania", description="Создать Mania-пул 4K или 7K")
+    @app_commands.choices(key_mode=[
+        app_commands.Choice(name="4K", value="mania4k"),
+        app_commands.Choice(name="7K", value="mania7k"),
+    ])
     @app_commands.describe(
+        key_mode="Подрежим Mania",
         name="Название пула",
         rice="RC — Rice: ID через пробел",
         hybrids="HB — Hybrids: ID через пробел",
@@ -646,12 +651,12 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         tiebreaker="TB — Tiebreaker: ID карты",
     )
     async def pool_create_mania(
-        self, interaction: discord.Interaction, name: str, rice: str,
+        self, interaction: discord.Interaction, key_mode: app_commands.Choice[str], name: str, rice: str,
         hybrids: str, longnotes: str, tiebreaker: str,
         speedvariations: str | None = None, extreme: str | None = None,
     ):
         await self._create_pool_from_slash_fields(
-            interaction, "mania", name, rc=rice, hb=hybrids,
+            interaction, key_mode.value, name, rc=rice, hb=hybrids,
             ln=longnotes, sv=speedvariations, ex=extreme, tb=tiebreaker,
         )
 
@@ -760,10 +765,11 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         app_commands.Choice(name="STD", value="std"),
         app_commands.Choice(name="Taiko", value="taiko"),
         app_commands.Choice(name="CTB", value="ctb"),
-        app_commands.Choice(name="Mania", value="mania"),
+            app_commands.Choice(name="Mania 4K", value="mania4k"),
+            app_commands.Choice(name="Mania 7K", value="mania7k"),
     ])
     async def pool_formats_slash(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
-        full_names = {'std': 'osu! Standard', 'taiko': 'osu! Taiko', 'ctb': 'osu! Catch', 'mania': 'osu! Mania'}
+        full_names = {'std': 'osu! Standard', 'taiko': 'osu! Taiko', 'ctb': 'osu! Catch', 'mania': 'osu! Mania 4K', 'mania4k': 'osu! Mania 4K', 'mania7k': 'osu! Mania 7K'}
         embed = discord.Embed(
             title=f"📋 Требования пула: {full_names[mode.value]}",
             description=format_category_requirements(mode.value),

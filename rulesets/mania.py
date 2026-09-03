@@ -1,15 +1,30 @@
 from .base import ModeRules
 
-MANIA_RULES = ModeRules(
-    mode="mania", osu_ruleset="mania",
+MANIA_4K_RULES = ModeRules(
+    mode="mania4k", osu_ruleset="mania",
     categories={
         "rc": "Rices", "hb": "Hybrids", "ln": "Long Notes",
-        "sv": "Speed Variations", "ex": "Extra", "tb": "Tiebreaker",
+        "sv": "Speed Variations", "tb": "Tiebreaker",
     },
-    # Mania is the one exception: 9 regulation maps plus one tiebreaker.
     minimums={"rc": 5, "hb": 2, "ln": 2, "tb": 1},
-    optional_categories=("sv", "ex"),
-    category_order=("rc", "hb", "ln", "sv", "ex", "tb"),
-    slot_mods={"rc": (), "hb": (), "ln": (), "sv": (), "ex": (), "tb": ()},
+    optional_categories=("sv",),
+    category_order=("rc", "hb", "ln", "sv", "tb"),
+    slot_mods={"rc": (), "hb": (), "ln": (), "sv": (), "tb": ()},
     allow_std_converts=True,
 )
+
+MANIA_7K_RULES = ModeRules(
+    mode="mania7k", osu_ruleset="mania",
+    categories={
+        "rc": "Rices", "hb": "Hybrids", "ln": "Long Notes",
+        "ex": "Extra", "tb": "Tiebreaker",
+    },
+    minimums={"rc": 5, "hb": 2, "ln": 2, "tb": 1},
+    optional_categories=("ex",),
+    category_order=("rc", "hb", "ln", "ex", "tb"),
+    slot_mods={"rc": (), "hb": (), "ln": (), "ex": (), "tb": ()},
+    allow_std_converts=True,
+)
+
+# Backwards-compatible name for code that still imports MANIA_RULES.
+MANIA_RULES = MANIA_4K_RULES

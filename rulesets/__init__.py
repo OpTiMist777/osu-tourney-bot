@@ -2,7 +2,7 @@
 
 from .base import ModeRules
 from .ctb import CTB_RULES
-from .mania import MANIA_RULES
+from .mania import MANIA_4K_RULES, MANIA_7K_RULES, MANIA_RULES
 from .std import STD_RULES
 from .taiko import TAIKO_RULES
 
@@ -10,14 +10,17 @@ RULESETS = {
     "std": STD_RULES,
     "taiko": TAIKO_RULES,
     "ctb": CTB_RULES,
-    "mania": MANIA_RULES,
+    "mania": MANIA_4K_RULES,
+    "mania4k": MANIA_4K_RULES,
+    "mania7k": MANIA_7K_RULES,
 }
 
 MODE_ALIASES = {
     "std": "std", "osu": "std", "standard": "std",
     "taiko": "taiko", "tk": "taiko",
     "ctb": "ctb", "catch": "ctb", "fruits": "ctb",
-    "mania": "mania", "man": "mania",
+    "mania": "mania4k", "man": "mania4k", "mania4k": "mania4k", "4k": "mania4k",
+    "mania7k": "mania7k", "7k": "mania7k",
 }
 
 

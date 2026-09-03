@@ -90,6 +90,10 @@ async def init_db() -> None:
             {"$set": {"name_key": _name_key(str(pool.get("name", "")))}},
         )
     await db.counters.update_one({"_id": "pools"}, {"$setOnInsert": {"next_id": 1}}, upsert=True)
+    await db.counters.update_one({"_id": "matches"}, {"$setOnInsert": {"next_id": 1}}, upsert=True)
+    await db.matches.create_index([("match_id", ASCENDING)], unique=True)
+    await db.matches.create_index([("bancho_channel", ASCENDING), ("status", ASCENDING)])
+    await db.matches.create_index([("channel_id", ASCENDING), ("status", ASCENDING)])
     print("✅ MongoDB инициализирована")
 
 
@@ -99,6 +103,14 @@ async def _next_pool_id() -> int:
     )
     if counter is None:
         raise RuntimeError("Could not allocate pool ID")
+    return int(counter["next_id"] - 1)
+
+async def _next_match_id() -> int:
+    counter = await _db().counters.find_one_and_update(
+        {"_id": "matches"}, {"$inc": {"next_id": 1}}, return_document=True
+    )
+    if counter is None:
+        raise RuntimeError("Could not allocate match ID")
     return int(counter["next_id"] - 1)
 
 
@@ -253,6 +265,49 @@ async def add_pool_map(pool_id: int, slot: str, beatmap_id: int, snapshot: Optio
         {"pool_id": pool_id, "maps.slot": {"$ne": slot}}, {"$push": {"maps": item}}
     )
     return result.matched_count == 1, "" if result.matched_count else f"Слот `{slot}` уже существует или пул не найден"
+
+async def get_match_by_bancho_channel(channel: str) -> Optional[Dict]:
+    """Find the latest live match in a multiplayer chat, including its lobby phase."""
+    return _pool(await _db().matches.find_one(
+        {
+            "bancho_channel": channel,
+            "status": {"$in": ["waiting_players", "pickban", "waiting_ready", "checking_settings", "game_running"]},
+        },
+        sort=[("match_id", DESCENDING)],
+    ))
+
+
+async def get_active_match_by_bancho_channel(channel: str) -> Optional[Dict]:
+    """Return the latest match currently waiting for a pick/ban action."""
+    return _pool(await _db().matches.find_one(
+        {"bancho_channel": channel, "status": "pickban"},
+        sort=[("match_id", DESCENDING)],
+    ))
+
+async def create_match(document: Dict[str, Any]) -> int:
+    """Persist a Discord-managed test match and return its public ID."""
+    match_id = await _next_match_id()
+    payload = dict(document)
+    payload.update({"match_id": match_id, "created_at": _now(), "updated_at": _now()})
+    await _db().matches.insert_one(payload)
+    return match_id
+
+
+async def get_match(match_id: int) -> Optional[Dict]:
+    return _pool(await _db().matches.find_one({"match_id": match_id}))
+
+
+async def get_active_match_in_channel(channel_id: int) -> Optional[Dict]:
+    return _pool(await _db().matches.find_one(
+        {"channel_id": channel_id, "status": "pickban"}, sort=[("match_id", DESCENDING)]
+    ))
+
+
+async def update_match(match_id: int, updates: Dict[str, Any]) -> bool:
+    updates = dict(updates)
+    updates["updated_at"] = _now()
+    result = await _db().matches.update_one({"match_id": match_id}, {"$set": updates})
+    return result.matched_count == 1
 
 
 async def close_database() -> None:

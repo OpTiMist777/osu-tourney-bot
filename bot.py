@@ -14,6 +14,16 @@ load_dotenv()
 # errors are handled explicitly below, keeping the console output concise.
 logging.getLogger("discord").setLevel(logging.CRITICAL)
 
+# Project events use one concise console format.  Do not log environment
+# values, raw IRC authentication, or Discord tokens.
+app_logger = logging.getLogger("osu_tourney")
+if not app_logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s", "%H:%M:%S"))
+    app_logger.addHandler(handler)
+app_logger.setLevel(logging.INFO)
+app_logger.propagate = False
+
 # Настройка intents
 intents = discord.Intents.default()
 intents.message_content = True
