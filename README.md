@@ -1,5 +1,7 @@
 # OsuTourneyBot
 
+See [CHANGELOG.md](CHANGELOG.md) for the English release notes.
+
 Discord-бот для управления пулами карт osu! и проведения тестовых матчей через Bancho IRC. Проект находится в активной разработке и сейчас используется для проверки ladder-инфраструктуры без рейтинговой формулы.
 
 ## Что уже работает
