@@ -61,7 +61,7 @@ class BaseCommands(commands.Cog, name="Базовые команды"):
             value="`/pool_help` — справка по пулам карт\n"
                   "`/pool_create` — создать пул\n"
                   "`/pool_view` — открыть пул и отправить Draft на модерацию\n"
-                  "`/match_create` — тестовый матч с pick/ban",
+                  "`/match_create` — тестовый матч для привязанных участников с pick/ban",
             inline=False
         )
         embed.add_field(

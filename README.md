@@ -1,29 +1,54 @@
 # OsuTourneyBot
 
-Discord bot for creating, reviewing, and displaying osu! tournament map pools.
-The current project focuses on pool management. The `cogs/osu_commands.py` module
-is reserved for the future Bancho multiplayer integration.
+Discord-бот для управления пулами карт osu! и проведения тестовых матчей через Bancho IRC. Проект находится в активной разработке и сейчас используется для проверки ladder-инфраструктуры без рейтинговой формулы.
 
-The current ladder policy draft is in [docs/ladder_policy.md](docs/ladder_policy.md).
+## Что уже работает
 
-## Current capabilities
+- MongoDB как основное хранилище пулов, карт, истории модерации и матчей.
+- Загрузка и обновление osu! API OAuth-токена при старте и в фоне.
+- Пулы для STD, Taiko, CTB и Mania 4K/7K.
+- Кэширование распарсенных данных карт в MongoDB.
+- Slash-команды для создания, просмотра, редактирования, удаления и отправки пулов на модерацию.
+- Статусы пулов: `Draft`, `Pending`, `Ranked`, `Unranked`.
+- Persistent-кнопки `Rank`/`Unrank` в чате модераторов с восстановлением после перезапуска.
+- Bancho IRC: создание MP-комнаты, приглашения игроков, ожидание подключения, ролл, pick/ban и таймеры.
+- Автоматическое восстановление Bancho IRC после краткого разрыва сети/VPN: повторный вход в активные MP-комнаты и восстановление стадии матча.
+- `/osu-connect`: одноразовая привязка Discord-пользователя к osu! аккаунту через код в osu! PM.
+- Установка выбранной карты и модов через `!mp map` и `!mp mods`.
+- Проверка `!mp settings` после каждого `All players are ready` и перед запуском карты, включая карту, игроков, готовность и NoFail для FreeMod.
+- Сохранение счёта серии и результатов сыгранных карт.
 
-- Prefix commands for map-pool creation, editing, viewing, submission, and moderation.
-- Supported modes: osu!standard, taiko, catch, and mania.
-- osu! API v2 lookup for beatmap metadata and pool-card display.
-- Official modded star rating lookup for standard `HD`, `HR`, and `DT` slots.
-- Convert marker and category-based pool display.
-- MongoDB for pool data. SQLite is retained only as a one-time migration source.
+Текущая матч-система работает без рейтинга. Glicko-2 и ladder-рейтинги будут добавлены отдельным этапом.
 
-## Requirements
+## Структура
+
+```text
+bot.py                 запуск Discord-бота
+database.py            MongoDB persistence
+osu_api.py             osu! API и кэш данных карт
+bancho_irc.py          IRC-клиент Bancho
+utils.py               парсинг и форматирование пулов
+launcher.ps1           визуальный Windows-лаунчер
+start_launcher.vbs     запуск лаунчера двойным кликом без консоли
+autostart_launcher.vbs запуск лаунчера с автоматическим стартом бота
+install_autostart.ps1  включение запуска при входе в Windows
+remove_autostart.ps1   отключение запуска при входе в Windows
+cogs/                  Discord-команды
+rulesets/              правила категорий для режимов
+docs/                  документы проекта
+tests/                 автоматические тесты правил
+```
+
+## Требования
 
 - Windows PowerShell
-- Python 3.12 or newer
-- A Discord application and bot token
-- osu! OAuth client ID and client secret
-- A local MongoDB Community Server
+- Python 3.12+
+- Discord application и bot token
+- osu! OAuth client ID и client secret
+- локальный или серверный MongoDB
+- osu! аккаунт с IRC-доступом для Bancho-бота
 
-## Setup
+## Установка
 
 ```powershell
 py -m venv venv
@@ -32,97 +57,114 @@ py -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Fill the values in `.env`. Keep it private: it contains credentials and is ignored by Git.
-Set `MONGODB_URI` to your local database, for example
-`mongodb://127.0.0.1:27017/osu_tourney_dev`.
+Заполни приватный `.env`. В репозиторий он не добавляется. Файл содержит Discord, osu!, MongoDB и Bancho IRC credentials — не публикуй его и не отправляй в чат.
 
-In the Discord Developer Portal, enable **Message Content Intent** and **Server Members Intent** for the bot.
+Для MongoDB можно использовать локальное подключение:
 
-## Run
+```env
+MONGODB_URI=mongodb://127.0.0.1:27017/osu_tourney_dev
+```
+
+В Discord Developer Portal должны быть включены `Message Content Intent` и `Server Members Intent`.
+
+## Запуск
+
+### Через визуальный интерфейс
+
+Дважды кликни `start_launcher.vbs`. Откроется окно с кнопками `Запустить`, `Остановить`, `Перезапустить` и окном логов процесса.
+
+Лаунчер использует `venv\\Scripts\\python.exe` и запускает `bot.py` без отдельного окна консоли.
+
+### Автозапуск Windows
+
+Чтобы бот запускался автоматически после входа в Windows, один раз выполни:
+
+```powershell
+.\install_autostart.ps1
+```
+
+Скрипт создаёт ярлык `OsuTourneyBot.lnk` в папке автозагрузки текущего пользователя. Для отключения:
+
+```powershell
+.\remove_autostart.ps1
+```
+
+Автозапуск использует отдельный лаунчер и не требует добавления токенов или паролей в ярлык.
+
+### Через PowerShell
 
 ```powershell
 .\venv\Scripts\Activate.ps1
 py bot.py
 ```
 
-Or use the helper script:
+Также доступны:
 
 ```powershell
 .\Make.ps1 install
 .\Make.ps1 run
 ```
 
-## Pool workflow
+## Pool-команды
 
 ```text
-/pool_create                 Create a STD, Taiko, or Catch draft pool
-/pool_create_mania           Create a Mania 4K or 7K draft pool (submode choice)
-/pool_view                   View a pool; a Draft includes an author-only Submit button
-/pool_edit                   Add or replace a map in your Draft/Unranked pool
-/pool_list                   List pools by status and mode
-/pool_delete                 Delete your Draft pool
-/pool_formats                Show required categories for a mode
-/pool_help                   Show the full pool-command reference
-/match_create                Create a no-rating Bancho lobby and in-game pick/ban
+/pool_create          создать Draft-пул STD, Taiko или CTB
+/pool_create_mania    создать Draft-пул Mania 4K или 7K
+/pool_view             просмотреть пул; Draft показывает Submit автору
+/pool_edit             изменить карту в Draft или Unranked
+/pool_delete           удалить собственный Draft
+/pool_list             список пулов с необязательными фильтрами
+/pool_formats          требования категорий выбранного режима
+/pool_help             справка по pool-командам
+/pool_repost_pending   повторно отправить Pending-пулы модераторам
+/osu-connect           привязать osu! аккаунт через одноразовый код в osu! PM
 ```
 
-Pools start as **Draft**. Press **Submit** on the creation or `/pool_view`
-response to send the pool for review. Moderators use persistent **Rank** and
-**Unrank** buttons in the configured moderation channel; pending buttons are
-restored when the bot restarts.
+Названия пулов используются как пользовательский идентификатор. В обычном выводе внутренние ID пулов скрыты.
 
-Pool slots are shown in uppercase, for example `NM1`, `HD1`, `RC1`, and `TB`.
-Bancho map-start and result automation are planned, but are not yet implemented.
+## Тестовый матч
 
-## Test matches
+`/match_create` принимает двух участников текущего Discord-сервера с привязанными osu! аккаунтами, Ranked-пул и формат BO5/BO7/BO9. В Bancho для инвайтов используются подтверждённые `osu_user_id` из MongoDB через формат `#<userid>`, а не Discord-ники или неоднозначный поиск по имени. Бот создаёт MP-комнату, приглашает игроков, ждёт обоих, выполняет ролл и принимает pick/ban только сообщениями со слотом вроде `NM1`.
 
-`/match_create` runs the first no-rating Bancho match flow. Supply two osu!
-usernames, a **Ranked** pool, and a format. The bot creates a multiplayer lobby,
-invites both players, rolls them, and accepts pick/ban slots only in the lobby
-chat. Each choice must be a single message such as `NM1`.
-
-Add the bot account's osu! username and its separate IRC password to private
-`.env` before using this command:
+IRC-данные в `.env`:
 
 ```env
-BANCHO_USERNAME=your_osu_bot_username
-BANCHO_IRC_PASSWORD=your_osu_irc_password
+BANCHO_USERNAME=your_osu_username
+BANCHO_IRC_PASSWORD=your_irc_password
 ```
 
-This version does not change ratings or automate map starts yet.
+Сообщения игрового процесса отправляются только в соответствующий MP-чат Bancho. Discord получает статус матча и результаты.
 
-## Migrating existing SQLite pools
+## Подключение osu! аккаунта
 
-After configuring `MONGODB_URI`, migrate the current local `tourney.db` once:
+`/osu-connect` выдаёт приватный одноразовый код. Пользователь отправляет его
+только в личном сообщении osu! аккаунту из `BANCHO_USERNAME`. После этого бот
+получает публичный `osu_user_id` через osu! API и сохраняет связь с Discord ID.
+Код хранится в MongoDB только в виде хэша, действует 10 минут и не записывается
+в логи. Перед регистрацией матча бот обновляет имя по сохранённому `osu_user_id`,
+поэтому смена ника не требует повторной привязки. Для этой команды Bancho IRC поддерживается подключённым даже без
+активной MP-комнаты.
+
+## Проверки
+
+Тесты запускаются без подключения к Discord или MongoDB:
 
 ```powershell
-.\venv\Scripts\python.exe migrate_sqlite_to_mongo.py
+.\venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The migration is safe to re-run: existing pool IDs are skipped. Keep the SQLite
-file as a local backup until the migrated pools have been verified in MongoDB Compass.
-
-Then cache osu! metadata for the migrated maps. This makes pool views read only
-from MongoDB rather than issuing API requests for every card:
+Проверка синтаксиса:
 
 ```powershell
-.\venv\Scripts\python.exe backfill_pool_snapshots.py
+.\venv\Scripts\python.exe -m py_compile bot.py database.py bancho_irc.py osu_api.py utils.py cogs\*.py rulesets\*.py
 ```
 
-## GitHub publishing checklist
+## Публикация
 
-1. Confirm `.env` is not staged: `git status` must not show it.
-2. Confirm `tourney.db`, `venv`, and `venv.broken` are not staged.
-3. Create a new empty GitHub repository without auto-generated files.
-4. Run:
+Перед отправкой на GitHub проверь:
 
 ```powershell
-git init
-git add .gitignore .env.example README.md requirements.txt bot.py database.py osu_api.py utils.py Make.ps1 test.py cogs
-git commit -m "Initial project import"
-git branch -M main
-git remote add origin https://github.com/<your-account>/<repository>.git
-git push -u origin main
+git status
 ```
 
-If any credential was ever pasted into a public place, revoke and regenerate it before publishing.
+В коммит не должны попасть `.env`, `venv/`, логи и локальные базы. Секреты нужно хранить только в локальном `.env` или в секретах CI/CD.

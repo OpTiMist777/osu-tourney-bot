@@ -1,6 +1,7 @@
 """MongoDB persistence for tournament map pools."""
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -13,6 +14,7 @@ load_dotenv()
 MONGODB_URI = os.getenv("MONGODB_URI")
 DATABASE_NAME = "osu_tourney_dev"
 _client: Optional[AsyncMongoClient] = None
+_osu_link_lock = asyncio.Lock()
 
 
 def _now() -> datetime:
@@ -94,6 +96,10 @@ async def init_db() -> None:
     await db.matches.create_index([("match_id", ASCENDING)], unique=True)
     await db.matches.create_index([("bancho_channel", ASCENDING), ("status", ASCENDING)])
     await db.matches.create_index([("channel_id", ASCENDING), ("status", ASCENDING)])
+    await db.osu_accounts.create_index([("discord_user_id", ASCENDING)], unique=True)
+    await db.osu_accounts.create_index([("osu_user_id", ASCENDING)], unique=True)
+    await db.osu_link_challenges.create_index([("code_hash", ASCENDING)], unique=True)
+    await db.osu_link_challenges.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0)
     print("✅ MongoDB инициализирована")
 
 
@@ -308,6 +314,103 @@ async def update_match(match_id: int, updates: Dict[str, Any]) -> bool:
     updates["updated_at"] = _now()
     result = await _db().matches.update_one({"match_id": match_id}, {"$set": updates})
     return result.matched_count == 1
+
+
+async def create_osu_login_challenge(
+    discord_user_id: int, code_hash: str, expires_at: datetime
+) -> bool:
+    """Replace the user's pending osu! connection code."""
+    try:
+        await _db().osu_link_challenges.delete_many({"discord_user_id": discord_user_id})
+        await _db().osu_link_challenges.insert_one({
+            "discord_user_id": discord_user_id,
+            "code_hash": code_hash,
+            "expires_at": expires_at,
+            "created_at": _now(),
+        })
+        return True
+    except PyMongoError:
+        return False
+
+
+async def delete_osu_login_challenge(discord_user_id: int) -> None:
+    try:
+        await _db().osu_link_challenges.delete_many({"discord_user_id": discord_user_id})
+    except PyMongoError:
+        pass
+
+
+async def get_osu_login_challenge(code_hash: str) -> Optional[Dict[str, Any]]:
+    document = await _db().osu_link_challenges.find_one({
+        "code_hash": code_hash,
+        "expires_at": {"$gt": _now()},
+    }, {"_id": 0})
+    return dict(document) if document else None
+
+
+async def get_osu_account_by_discord(discord_user_id: int) -> Optional[Dict[str, Any]]:
+    document = await _db().osu_accounts.find_one({"discord_user_id": discord_user_id}, {"_id": 0})
+    return dict(document) if document else None
+
+
+async def get_osu_account_by_osu_id(osu_user_id: int) -> Optional[Dict[str, Any]]:
+    document = await _db().osu_accounts.find_one({"osu_user_id": osu_user_id}, {"_id": 0})
+    return dict(document) if document else None
+
+
+async def update_osu_account_username(osu_user_id: int, osu_username: str) -> bool:
+    """Refresh the cached username while keeping the stable osu! ID unchanged."""
+    try:
+        result = await _db().osu_accounts.update_one(
+            {"osu_user_id": int(osu_user_id)},
+            {"$set": {"osu_username": osu_username.strip(), "last_verified_at": _now()}},
+        )
+    except (PyMongoError, TypeError, ValueError):
+        return False
+    return result.matched_count > 0
+
+
+async def complete_osu_login(
+    code_hash: str, osu_user_id: int, osu_username: str
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """Consume a code and atomically create the Discord <-> osu! link.
+
+    The process-local lock prevents two IRC events from consuming the same
+    challenge in this bot process. Unique MongoDB indexes protect the mapping
+    if another worker ever attempts the same operation concurrently.
+    """
+    async with _osu_link_lock:
+        challenge = await _db().osu_link_challenges.find_one({
+            "code_hash": code_hash,
+            "expires_at": {"$gt": _now()},
+        })
+        if not challenge:
+            return "invalid_or_expired", None
+
+        discord_user_id = int(challenge["discord_user_id"])
+        existing_osu = await get_osu_account_by_osu_id(osu_user_id)
+        if existing_osu and int(existing_osu["discord_user_id"]) != discord_user_id:
+            return "osu_already_linked", existing_osu
+
+        existing_discord = await get_osu_account_by_discord(discord_user_id)
+        if existing_discord and int(existing_discord["osu_user_id"]) != osu_user_id:
+            return "discord_already_linked", existing_discord
+
+        account = {
+            "discord_user_id": discord_user_id,
+            "osu_user_id": int(osu_user_id),
+            "osu_username": osu_username.strip(),
+            "linked_at": existing_discord.get("linked_at", _now()) if existing_discord else _now(),
+            "last_verified_at": _now(),
+        }
+        try:
+            await _db().osu_accounts.update_one(
+                {"discord_user_id": discord_user_id}, {"$set": account}, upsert=True
+            )
+            await _db().osu_link_challenges.delete_one({"_id": challenge["_id"]})
+        except PyMongoError:
+            return "storage_error", None
+        return "linked", account
 
 
 async def close_database() -> None:

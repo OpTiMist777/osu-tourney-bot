@@ -3,6 +3,7 @@ import aiohttp
 import asyncio
 from dotenv import load_dotenv
 import os
+from urllib.parse import quote
 
 load_dotenv()
 
@@ -118,6 +119,67 @@ class OsuClientManager:
                     "url": f"https://osu.ppy.sh/b/{data['id']}",
                     "convert": is_convert,
                     "mods": []
+                }
+
+    async def get_user(self, username: str) -> dict:
+        """Resolve an osu! username to its stable public account ID."""
+        await self._ensure_token()
+        raw_username = username.strip().strip("[]")
+        if not raw_username:
+            raise ValueError("osu! username is empty")
+        candidates = list(dict.fromkeys((raw_username, raw_username.replace("_", " "))))
+
+        async with aiohttp.ClientSession() as session:
+            for candidate in candidates:
+                encoded_username = quote(candidate, safe="")
+                async with session.get(
+                    f"{OSU_API_URL}/users/{encoded_username}",
+                    headers={
+                        "Authorization": f"Bearer {self.access_token}",
+                        "Accept": "application/json",
+                    },
+                ) as resp:
+                    if resp.status == 404:
+                        continue
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        raise RuntimeError(f"osu! API ошибка при поиске пользователя (HTTP {resp.status}): {error_text}")
+                    data = await resp.json()
+                    return {
+                        "id": int(data["id"]),
+                        "username": str(data.get("username", raw_username)),
+                    }
+        raise ValueError(f"osu! аккаунт `{raw_username}` не найден")
+
+    async def get_user_by_id(self, user_id: int) -> dict:
+        """Resolve the current public username for a stable osu! account ID."""
+        await self._ensure_token()
+        try:
+            numeric_id = int(user_id)
+        except (TypeError, ValueError) as error:
+            raise ValueError("osu! user ID must be an integer") from error
+        if numeric_id <= 0:
+            raise ValueError("osu! user ID must be positive")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{OSU_API_URL}/users/{numeric_id}",
+                headers={
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Accept": "application/json",
+                },
+            ) as resp:
+                if resp.status == 404:
+                    raise ValueError(f"osu! аккаунт с ID `{numeric_id}` не найден")
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    raise RuntimeError(
+                        f"osu! API ошибка при поиске пользователя по ID (HTTP {resp.status}): {error_text}"
+                    )
+                data = await resp.json()
+                return {
+                    "id": int(data["id"]),
+                    "username": str(data.get("username", numeric_id)),
                 }
 
     async def get_beatmap_star_rating(self, beatmap_id: int, mods: list[str]) -> float:
