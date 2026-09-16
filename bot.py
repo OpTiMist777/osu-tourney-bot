@@ -84,7 +84,6 @@ async def on_ready():
 async def load_cogs():
     """Загрузка всех когов из папки cogs"""
     cog_files = [
-        "base_commands",
         "pool_commands",
         "osu_commands"
     ]
@@ -95,18 +94,6 @@ async def load_cogs():
             print(f"✅ Загружен ког: {cog}")
         except Exception as e:
             print(f"❌ Ошибка загрузки кога {cog}: {e}")
-
-@bot.event
-async def on_command_error(ctx, error):
-    """Глобальный обработчик ошибок команд"""
-    if isinstance(error, commands.CommandNotFound):
-        await ctx.send("❌ Команда не найдена. Используйте `!help` для списка команд.")
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ У вас недостаточно прав для выполнения этой команды.")
-    elif isinstance(error, commands.NotOwner):
-        await ctx.send("❌ Эта команда доступна только владельцу бота.")
-    else:
-        print(f"⚠️ Необработанная ошибка: {error}")
 
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")

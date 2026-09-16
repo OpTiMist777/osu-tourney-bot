@@ -38,9 +38,9 @@ class BaseCommands(commands.Cog, name="Базовые команды"):
             
             embed = discord.Embed(title="📋 Список пулов", color=0x00ff00)
             for pool in pools_list:
-                status_emoji = {"draft": "✏️", "pending": "⏳", "approved": "✅", "rejected": "❌"}.get(pool['status'], "❓")
+                status_emoji = {"draft": "✏️", "pending": "⏳", "ranked": "✅", "unranked": "❌"}.get(pool['status'], "❓")
                 embed.add_field(
-                    name=f"{status_emoji} ID {pool['pool_id']} | {pool['name']}",
+                    name=f"{status_emoji} {pool['name']}",
                     value=f"Режим: `{pool['mode'].upper()}` | Статус: `{pool['status']}`",
                     inline=False
                 )

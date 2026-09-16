@@ -16,6 +16,7 @@ from bancho_irc import BanchoIRC
 from database import (
     create_match, get_match, get_pool_by_name, update_match,
     get_active_match_by_bancho_channel, get_match_by_bancho_channel,
+    get_active_match_for_osu_users,
     create_osu_login_challenge, delete_osu_login_challenge,
     complete_osu_login, get_osu_account_by_discord, get_osu_login_challenge,
     update_osu_account_username,
@@ -410,6 +411,17 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 ephemeral=True,
             )
             return
+        active_player_match = await get_active_match_for_osu_users([
+            int(player_one_account['osu_user_id']),
+            int(player_two_account['osu_user_id']),
+        ])
+        if active_player_match:
+            await interaction.response.send_message(
+                f"❌ Один из выбранных игроков уже участвует в активном матче "
+                f"#{active_player_match['match_id']}.",
+                ephemeral=True,
+            )
+            return
         pools = [p for p in await get_pool_by_name(pool_name) if p['status'] == 'ranked']
         if len(pools) != 1:
             await interaction.response.send_message('❌ Ranked-пул с таким названием не найден.', ephemeral=True); return
@@ -473,7 +485,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         )
 
     async def _send_invites_for_five_minutes(self, match_id: int, channel: str, players: list[str]) -> None:
-        """Send five invite rounds, one per minute, while players are joining."""
+        """Send one invite round per minute during the full five-minute join window."""
         try:
             for attempt in range(1, 6):
                 match = await get_match_by_bancho_channel(channel)
@@ -484,8 +496,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                     if _nick(player) not in joined:
                         await self.irc.send_channel(channel, f'!mp invite {_invite_target(match, player)}')
                 logger.info("Матч #%s: раунд инвайтов %s/5", match_id, attempt)
-                if attempt < 5:
-                    await asyncio.sleep(60)
+                # The fifth invite is sent at minute four; wait through minute
+                # five before cancelling the lobby so players receive the full
+                # five-minute join window promised by the command.
+                await asyncio.sleep(60)
             logger.info("Матч #%s: пятиминутное окно входа завершено", match_id)
             match = await get_match_by_bancho_channel(channel)
             if match and match['status'] == 'waiting_players':
@@ -983,9 +997,20 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             first, scores[first], second, scores[second],
         )
         if scores[first] == scores[second]:
-            logger.warning("Матч #%s: ничья на карте %s, требуется ручная проверка", match['match_id'], match.get('selected_slot', '?'))
-            await update_match(match['match_id'], {'status': 'pickban', 'current_map_scores': scores})
-            await self.irc.send_channel(match['bancho_channel'], 'Map was tied. Referee review is required before continuing.')
+            slot = match.get('selected_slot')
+            is_tiebreaker = bool(match.get('selected_is_tiebreaker'))
+            logger.info(
+                "Матч #%s: ничья на карте %s; карта будет переиграна",
+                match['match_id'], slot or '?',
+            )
+            await self.irc.send_channel(
+                match['bancho_channel'],
+                f"Map {slot or 'unknown'} was tied. The same map will be replayed.",
+            )
+            # A draw never consumes a pick or changes the series score. Apply
+            # the same stored beatmap and mods again, then wait for a new ready
+            # confirmation before starting the replay.
+            await self._set_map_and_wait_ready(match, slot, is_tiebreaker=is_tiebreaker)
             await self._refresh_discord(match['match_id'])
             return
         winner = first if scores[first] > scores[second] else second

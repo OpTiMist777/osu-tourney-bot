@@ -62,7 +62,11 @@ class BanchoIRC:
         self.password = os.getenv("BANCHO_IRC_PASSWORD", "").strip()
         self.reader = self.writer = None
         self._connected = asyncio.Event()
-        self._match_waiter = None
+        self._match_waiter: tuple[asyncio.Future[str], str] | None = None
+        # BanchoBot replies to `!mp make` in one shared private chat.  Room
+        # creation must therefore be serialized, while the resulting MP rooms
+        # themselves can operate concurrently.
+        self._match_make_lock = asyncio.Lock()
         self._settings_waiters: dict[str, asyncio.Future[None]] = {}
         self._settings_buffers: dict[str, list[str]] = {}
         self.message_handler: MessageHandler | None = None
@@ -267,29 +271,35 @@ class BanchoIRC:
         )
         return settings
     async def make_match(self, name: str) -> str:
-        await self.connect()
-        logger.info("Запрос создания Bancho-комнаты: %s", name)
-        self._match_waiter = asyncio.get_running_loop().create_future()
-        await self.send_channel("BanchoBot", f"!mp make {name}")
-        try:
-            match_id = await asyncio.wait_for(self._match_waiter, 20)
-        except TimeoutError as error:
-            logger.error("Bancho IRC: BanchoBot не подтвердил создание комнаты за 20 секунд")
-            raise RuntimeError("BanchoBot не подтвердил создание комнаты") from error
-        channel = f"#mp_{match_id}"
-        self._channels[channel.casefold()] = channel
-        logger.info("BanchoBot создал комнату %s", channel)
-        await self._send(f"JOIN {channel}")
-        logger.info("IRC → JOIN %s", channel)
-        # `/join #mp_<id>` has no guaranteed standalone IRC acknowledgement
-        # from Bancho.  TCP preserves command order, so verify the join by the
-        # subsequent BanchoBot response in the room instead of timing out on a
-        # non-portable JOIN event.
-        await asyncio.sleep(1)
-        await self.verify_room(channel)
-        await self.send_channel(channel, "!mp set 0 3 3")
-        logger.info("Комната %s настроена командой !mp set 0 3 3", channel)
-        return channel
+        async with self._match_make_lock:
+            await self.connect()
+            logger.info("Запрос создания Bancho-комнаты: %s", name)
+            waiter: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+            self._match_waiter = (waiter, name)
+            await self.send_channel("BanchoBot", f"!mp make {name}")
+            try:
+                match_id = await asyncio.wait_for(waiter, 20)
+            except TimeoutError as error:
+                logger.error("Bancho IRC: BanchoBot не подтвердил создание комнаты за 20 секунд")
+                raise RuntimeError("BanchoBot не подтвердил создание комнаты") from error
+            finally:
+                # A delayed reply from an earlier request must never satisfy
+                # the waiter belonging to the next request.
+                if self._match_waiter and self._match_waiter[0] is waiter:
+                    self._match_waiter = None
+            channel = f"#mp_{match_id}"
+            self._channels[channel.casefold()] = channel
+            logger.info("BanchoBot создал комнату %s", channel)
+            await self._send(f"JOIN {channel}")
+            logger.info("IRC → JOIN %s", channel)
+            # `/join #mp_<id>` has no guaranteed standalone IRC acknowledgement
+            # from Bancho. TCP preserves command order, so verify the join by
+            # the subsequent BanchoBot response in the room instead.
+            await asyncio.sleep(1)
+            await self.verify_room(channel)
+            await self.send_channel(channel, "!mp set 0 3 3")
+            logger.info("Комната %s настроена командой !mp set 0 3 3", channel)
+            return channel
     async def _read_loop(self, reader, writer) -> None:
         try:
             while line := await reader.readline():
@@ -327,7 +337,13 @@ class BanchoIRC:
                 if not message: continue
                 sender, target, text = message.groups()
                 url = self.MATCH_URL.search(text)
-                if sender.casefold() == "banchobot" and url and self._match_waiter and not self._match_waiter.done(): self._match_waiter.set_result(url.group(1))
+                if sender.casefold() == "banchobot" and url and self._match_waiter:
+                    waiter, requested_name = self._match_waiter
+                    # BanchoBot includes the room name in its confirmation.
+                    # Checking it prevents a delayed response for an earlier
+                    # `!mp make` request from being assigned to a later match.
+                    if requested_name.casefold() in text.casefold() and not waiter.done():
+                        waiter.set_result(url.group(1))
                 if sender.casefold() == "banchobot" and url:
                     logger.info("BanchoBot подтвердил создание MP-комнаты: #%s", url.group(1))
                 if sender.casefold() == "banchobot":

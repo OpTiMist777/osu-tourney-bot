@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.1] - 2026-09-17
+
+Maintenance release for the first no-rating match test build, focused on
+concurrent match safety and match-flow corrections.
+
+### Added
+
+- Added a live-match lookup by stable osu! user ID. A player cannot be added to
+  a second active match, while a Discord channel can host any number of matches.
+- Added a MongoDB index for active-match lookups by participating osu! IDs.
+- Serialized BanchoBot `!mp make` requests and matched each room-creation reply
+  to its requested lobby name, so concurrent match creation cannot assign a
+  room to the wrong match.
+
+### Changed
+
+- A tied map is now replayed with the same beatmap and mods until it produces a
+  winner. The draw does not change the series score or consume another pick.
+- Corrected the player-invite window to last the full five minutes.
+- Updated `/pool_list` to filter Mania 4K and Mania 7K independently.
+- Removed the remaining loaded legacy prefix-command cog; the bot now exposes
+  the maintained slash-command workflow.
+- Removed internal pool IDs from remaining user-facing pool creation,
+  moderation, and list output.
+
+### Fixed
+
+- Fixed the active Discord-channel query to use the persisted
+  `discord_channel_id` field.
+- Fixed stale `approved`/`rejected` status labels in the legacy pool listing
+  implementation.
+
 ## [0.1.0] - 2026-09-16
 
 This release turns the initial pool-management prototype into a working

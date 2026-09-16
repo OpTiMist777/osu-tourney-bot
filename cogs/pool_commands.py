@@ -236,9 +236,9 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         try:
             author = await self.bot.fetch_user(pool['created_by'])
             if status == 'ranked':
-                notification = discord.Embed(title="✅ Ваш пул получил статус Ranked!", description=f"**{pool['name']}** (ID: `{pool_id}`)", color=0x00ff00)
+                notification = discord.Embed(title="✅ Ваш пул получил статус Ranked!", description=f"**{pool['name']}**", color=0x00ff00)
             else:
-                notification = discord.Embed(title="❌ Ваш пул получил статус Unranked", description=f"**{pool['name']}** (ID: `{pool_id}`)", color=0xff0000)
+                notification = discord.Embed(title="❌ Ваш пул получил статус Unranked", description=f"**{pool['name']}**", color=0xff0000)
                 notification.add_field(name="Причина", value=reason or "Без указания причины", inline=False)
             await author.send(embed=notification)
         except discord.DiscordException:
@@ -305,7 +305,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         """Post a draft to the moderator channel, then mark it pending."""
         pool = await get_pool(pool_id)
         if not pool:
-            return False, f"❌ Пул с ID `{pool_id}` не найден."
+            return False, "❌ Пул не найден."
         if pool['created_by'] != author.id:
             return False, "❌ Только автор пула может отправить его на модерацию."
         if pool['status'] != 'draft':
@@ -439,7 +439,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             await progress.edit(content=f"❌ Ошибка базы данных: {error}")
             return
         pool_maps = await get_pool_maps(pool_id)
-        embed = discord.Embed(title="✅ Пул успешно создан!", description=f"**{name.strip()}** (ID: `{pool_id}`)", color=0x00ff00)
+        embed = discord.Embed(title="✅ Пул успешно создан!", description=f"**{name.strip()}**", color=0x00ff00)
         embed.add_field(name="Режим", value=f"`{mode.upper()}`", inline=True)
         embed.add_field(name="Карт", value=f"`{len(pool_maps)}`", inline=True)
         embed.add_field(name="Статус", value="✏️ Draft", inline=True)
@@ -459,7 +459,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         """Validate, parse and save one map change for the slash edit command."""
         pool = await get_pool(pool_id)
         if not pool:
-            return False, f"❌ Пул с ID `{pool_id}` не найден.", None
+            return False, "❌ Пул не найден.", None
         if pool['created_by'] != author.id:
             return False, "❌ Только автор пула может его редактировать.", None
         if pool['status'] not in ('draft', 'unranked'):
@@ -701,7 +701,9 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
     @app_commands.choices(
         mode=[
             app_commands.Choice(name="STD", value="std"), app_commands.Choice(name="Taiko", value="taiko"),
-            app_commands.Choice(name="CTB", value="ctb"), app_commands.Choice(name="Mania", value="mania"),
+            app_commands.Choice(name="CTB", value="ctb"),
+            app_commands.Choice(name="Mania 4K", value="mania4k"),
+            app_commands.Choice(name="Mania 7K", value="mania7k"),
         ],
         status=[
             app_commands.Choice(name="Draft", value="draft"), app_commands.Choice(name="Pending", value="pending"),

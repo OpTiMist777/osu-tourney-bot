@@ -95,7 +95,8 @@ async def init_db() -> None:
     await db.counters.update_one({"_id": "matches"}, {"$setOnInsert": {"next_id": 1}}, upsert=True)
     await db.matches.create_index([("match_id", ASCENDING)], unique=True)
     await db.matches.create_index([("bancho_channel", ASCENDING), ("status", ASCENDING)])
-    await db.matches.create_index([("channel_id", ASCENDING), ("status", ASCENDING)])
+    await db.matches.create_index([("discord_channel_id", ASCENDING), ("status", ASCENDING)])
+    await db.matches.create_index([("player_osu_ids", ASCENDING), ("status", ASCENDING)])
     await db.osu_accounts.create_index([("discord_user_id", ASCENDING)], unique=True)
     await db.osu_accounts.create_index([("osu_user_id", ASCENDING)], unique=True)
     await db.osu_link_challenges.create_index([("code_hash", ASCENDING)], unique=True)
@@ -303,9 +304,38 @@ async def get_match(match_id: int) -> Optional[Dict]:
     return _pool(await _db().matches.find_one({"match_id": match_id}))
 
 
-async def get_active_match_in_channel(channel_id: int) -> Optional[Dict]:
+async def get_active_match_for_osu_users(osu_user_ids: List[int]) -> Optional[Dict]:
+    """Return a live match containing any supplied stable osu! account ID."""
+    ids = [int(user_id) for user_id in osu_user_ids]
+    if not ids:
+        return None
     return _pool(await _db().matches.find_one(
-        {"channel_id": channel_id, "status": "pickban"}, sort=[("match_id", DESCENDING)]
+        {
+            "player_osu_ids": {"$in": ids},
+            "status": {
+                "$in": [
+                    "waiting_players", "pickban", "waiting_ready",
+                    "checking_settings", "game_running",
+                ],
+            },
+        },
+        sort=[("match_id", DESCENDING)],
+    ))
+
+
+async def get_active_match_in_channel(channel_id: int) -> Optional[Dict]:
+    """Return the most recent active match displayed in a Discord channel."""
+    return _pool(await _db().matches.find_one(
+        {
+            "discord_channel_id": channel_id,
+            "status": {
+                "$in": [
+                    "waiting_players", "pickban", "waiting_ready",
+                    "checking_settings", "game_running",
+                ],
+            },
+        },
+        sort=[("match_id", DESCENDING)],
     ))
 
 
