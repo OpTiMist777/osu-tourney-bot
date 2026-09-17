@@ -5,6 +5,48 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.3] - 2026-09-17
+
+Match observability and cross-ruleset pool parsing fixes for the no-rating
+multiplayer test build.
+
+### Added
+
+- Added a live match-status embed in the dedicated staff match-log channel.
+  It mirrors the public match output and is updated as players join, make
+  choices, play maps, and finish the series.
+- Added concise match-event entries to the staff log for lobby creation,
+  player joins, actions, lobby validation, map outcomes, timeouts, and room
+  closure.
+- Added automatic posting of the selected pool in the Discord match channel
+  once both participants have joined the Bancho lobby.
+- Added regression coverage for Head-to-Head `!mp settings` player lines and
+  STD-origin CTB convert parsing.
+
+### Changed
+
+- osu! difficulty-attribute requests now accept an explicit ruleset, allowing
+  the stored star rating of a permitted convert to be calculated for its
+  target mode.
+- Replaced the low-contrast Unrank button cross with a readable downtrend
+  icon.
+
+### Fixed
+
+- Fixed Head-to-Head lobby validation: BanchoBot omits the `[Team ... / Mods]`
+  suffix in this mode, so ready players were previously parsed as absent and
+  the bot repeatedly reset an already valid lobby instead of starting it.
+- Fixed pool creation and editing for permitted STD-origin Taiko, CTB, and
+  Mania converts. They are stored as converts and use target-ruleset star
+  ratings; non-STD cross-mode maps remain rejected.
+- Fixed staff match tracking so it receives the full live match embed instead
+  of only textual event entries.
+
+### Testing
+
+- `venv\\Scripts\\python.exe -m unittest discover -s tests -v` — 8 tests passed.
+- Python bytecode compilation completed successfully for the updated modules.
+
 ## [0.1.2] - 2026-09-17
 
 Reliability and code-cleanup release for the no-rating multiplayer test build.

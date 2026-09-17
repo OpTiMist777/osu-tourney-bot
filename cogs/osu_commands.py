@@ -114,6 +114,7 @@ def _mod_tokens(value: str) -> set[str]:
 class OsuCommands(commands.Cog, name="osu! multiplayer"):
     ACTION_TIMER_SECONDS = 90
     READY_MESSAGES = {'all players are ready', 'all players ready'}
+    MATCH_LOG_CHANNEL_ID = 1550058586846011473
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot, self.irc = bot, BanchoIRC()
@@ -153,6 +154,84 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
     def _action_lock(self, match_id: int) -> asyncio.Lock:
         """Return the per-match lock shared by slot messages and timeouts."""
         return self._action_locks.setdefault(match_id, asyncio.Lock())
+
+    async def _get_discord_channel(self, channel_id: int) -> discord.abc.Messageable | None:
+        """Return a sendable Discord channel without assuming it is cached."""
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except discord.DiscordException:
+                return None
+        return channel if isinstance(channel, discord.abc.Messageable) else None
+
+    async def _post_match_log(self, match_id: int, message: str, *, level: str = "INFO") -> None:
+        """Mirror a concise, non-sensitive match event to the staff log channel."""
+        try:
+            channel = await self._get_discord_channel(self.MATCH_LOG_CHANNEL_ID)
+            if channel is None:
+                logger.warning("Матч #%s: канал логов Discord недоступен", match_id)
+                return
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            await channel.send(
+                f"```text\n[{timestamp}] [{level}] Match #{match_id}: {message[:1800]}\n```",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.DiscordException:
+            logger.warning("Матч #%s: не удалось отправить событие в Discord-логи", match_id)
+
+    async def _refresh_match_log_embed(self, match: dict) -> None:
+        """Keep one staff-channel embed synchronized with the public match output."""
+        try:
+            channel = await self._get_discord_channel(self.MATCH_LOG_CHANNEL_ID)
+            if channel is None:
+                logger.warning("Матч #%s: канал логов Discord недоступен", match["match_id"])
+                return
+
+            message_id = match.get("match_log_message_id")
+            if message_id:
+                try:
+                    message = await channel.fetch_message(message_id)
+                    await message.edit(embed=self._embed(match))
+                    return
+                except discord.NotFound:
+                    # The staff message may be deleted manually. Recreate it
+                    # and replace only its stored reference.
+                    pass
+
+            message = await channel.send(
+                embed=self._embed(match),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            await update_match(match["match_id"], {"match_log_message_id": message.id})
+        except discord.DiscordException:
+            logger.warning("Матч #%s: не удалось обновить embed в Discord-логах", match["match_id"])
+
+    async def _send_match_pool(self, match: dict) -> None:
+        """Post the exact stored pool to the match's Discord channel once."""
+        if match.get("pool_message_id"):
+            return
+        try:
+            channel = await self._get_discord_channel(int(match["discord_channel_id"]))
+            pool_cog = self.bot.get_cog("Команды пулов")
+            if channel is None or pool_cog is None:
+                raise RuntimeError("канал матча или cog пулов недоступен")
+            embed, pool = await pool_cog._pool_view_embed(int(match["pool_id"]))
+            if embed is None or pool is None:
+                raise RuntimeError("пул матча не найден")
+            embed.title = f"🗺️ Пул матча: {pool['name']}"
+            embed.set_footer(text=f"Режим: {pool['mode'].upper()} · BO{match['best_of']}")
+            message = await channel.send(
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            await update_match(match["match_id"], {"pool_message_id": message.id})
+            await self._post_match_log(match["match_id"], f"Pool posted to the match channel: {pool['name']}.")
+        except Exception:
+            logger.exception("Матч #%s: не удалось опубликовать пул в Discord", match["match_id"])
+            await self._post_match_log(
+                match["match_id"], "Could not post the pool to the match channel.", level="ERROR",
+            )
 
     async def restore_live_matches(self) -> None:
         """Rejoin and resume persisted live rooms after a bot process restart."""
@@ -495,13 +574,19 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             }
             for item in pool['maps']
         }
-        match_id = await create_match({'status':'waiting_players', 'discord_channel_id':interaction.channel_id, 'discord_message_id':None, 'bancho_channel':channel, 'bancho_match_id':channel.removeprefix('#mp_'), 'pool_id':pool['pool_id'], 'pool_name':pool['name'], 'mode':pool['mode'], 'players':[player_one_name, player_two_name], 'player_osu_ids':[int(player_one_account['osu_user_id']), int(player_two_account['osu_user_id'])], 'joined_players':[], 'join_deadline':datetime.now(timezone.utc) + timedelta(minutes=5), 'roll_winner':winner, 'roll_loser':loser, 'best_of':best_of, 'bans_per_player':bans, 'actions':_actions(best_of,bans,loser,winner), 'action_index':0, 'available_slots':slots, 'tiebreaker_slot':tiebreaker, 'map_choices':map_choices, 'history':[]})
+        match_id = await create_match({'status':'waiting_players', 'discord_channel_id':interaction.channel_id, 'discord_message_id':None, 'pool_message_id':None, 'match_log_message_id':None, 'bancho_channel':channel, 'bancho_match_id':channel.removeprefix('#mp_'), 'pool_id':pool['pool_id'], 'pool_name':pool['name'], 'mode':pool['mode'], 'players':[player_one_name, player_two_name], 'player_osu_ids':[int(player_one_account['osu_user_id']), int(player_two_account['osu_user_id'])], 'joined_players':[], 'join_deadline':datetime.now(timezone.utc) + timedelta(minutes=5), 'roll_winner':winner, 'roll_loser':loser, 'best_of':best_of, 'bans_per_player':bans, 'actions':_actions(best_of,bans,loser,winner), 'action_index':0, 'available_slots':slots, 'tiebreaker_slot':tiebreaker, 'map_choices':map_choices, 'history':[]})
         logger.info("Матч #%s сохранён: %s, roll winner=%s", match_id, channel, winner)
+        await self._post_match_log(
+            match_id,
+            f"Lobby {channel} created: {player_one_name} vs {player_two_name}; "
+            f"pool {pool['name']}; BO{best_of}.",
+        )
         await self.irc.send_channel(channel, 'Waiting for both players to join before the roll.')
         match = await get_match(match_id)
         await interaction.followup.send(embed=self._embed(match))
         message = await interaction.original_response()
         await update_match(match_id, {'discord_message_id': message.id})
+        await self._refresh_match_log_embed(await get_match(match_id))
         self._invite_tasks[match_id] = asyncio.create_task(
             self._send_invites_for_five_minutes(match_id, channel, [player_one_name, player_two_name])
         )
@@ -538,6 +623,9 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 joined = match.get('joined_players', [])
                 await update_match(match_id, {'status': 'cancelled'})
                 logger.info("Матч #%s: отменён — в лобби вошли не все игроки (%s/2)", match_id, len(joined))
+                await self._post_match_log(
+                    match_id, f"Match cancelled: only {len(joined)}/2 players joined within 5 minutes.", level="WARNING",
+                )
                 await self.irc.send_channel(
                     channel,
                     f"Match cancelled: not all players joined within 5 minutes ({len(joined)}/2).",
@@ -656,6 +744,9 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             return
         joined = [*match.get('joined_players', []), canonical]
         logger.info("Матч #%s: %s вошёл в лобби (%s/2)", match['match_id'], canonical, len(joined))
+        await self._post_match_log(
+            match['match_id'], f"{canonical} joined the lobby ({len(joined)}/2).",
+        )
         if len(joined) < len(match['players']):
             await update_match(match['match_id'], {'joined_players': joined})
             await self._refresh_discord(match['match_id'])
@@ -665,6 +756,12 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             invite_task.cancel()
         await update_match(match['match_id'], {'joined_players': joined, 'status': 'pickban'})
         updated = await get_match(match['match_id'])
+        await self._send_match_pool(updated)
+        await self._post_match_log(
+            updated['match_id'],
+            f"Both players joined. Roll: {updated['roll_winner']} picks first; "
+            f"{updated['roll_loser']} bans first.",
+        )
         await self.irc.send_channel(channel, f'Both players joined. Roll result: {updated["roll_winner"]} picks first; {updated["roll_loser"]} bans first.')
         await self.irc.send_channel(channel, f'{updated["roll_loser"]}: ban a slot by writing its name in this lobby chat.')
         await self.irc.send_channel(channel, f'!mp timer {self.ACTION_TIMER_SECONDS}')
@@ -740,15 +837,17 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
 
     async def _refresh_discord(self, match_id: int) -> None:
         match = await get_match(match_id)
-        if not match or not match.get('discord_message_id'):
+        if not match:
             return
-        try:
-            channel = self.bot.get_channel(match['discord_channel_id'])
-            if channel:
-                message = await channel.fetch_message(match['discord_message_id'])
-                await message.edit(embed=self._embed(match))
-        except discord.DiscordException:
-            logger.warning("Матч #%s: не удалось обновить Discord-сообщение", match_id)
+        if match.get('discord_message_id'):
+            try:
+                channel = await self._get_discord_channel(match['discord_channel_id'])
+                if channel:
+                    message = await channel.fetch_message(match['discord_message_id'])
+                    await message.edit(embed=self._embed(match))
+            except discord.DiscordException:
+                logger.warning("Матч #%s: не удалось обновить Discord-сообщение", match_id)
+        await self._refresh_match_log_embed(match)
 
     async def _set_map_and_wait_ready(self, match: dict, slot: str, *, is_tiebreaker: bool = False) -> None:
         """Apply one stored pool map, then wait for BanchoBot readiness."""
@@ -758,6 +857,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         logger.info(
             "Матч #%s: установка %s %s (beatmap %s, режим %s, mods %s)",
             match['match_id'], label, slot, choice['beatmap_id'], mode_id, choice['mods'],
+        )
+        await self._post_match_log(
+            match['match_id'],
+            f"Set {label} {slot}: beatmap {choice['beatmap_id']}, mode {mode_id}, mods {choice['mods']}.",
         )
         await update_match(match['match_id'], {
             'status': 'waiting_ready', 'selected_slot': slot, 'selected_is_tiebreaker': is_tiebreaker,
@@ -775,6 +878,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             return False
         selected = match.get('selected_slot', 'the selected map')
         logger.info("Матч #%s: все игроки готовы для %s; запрашиваем !mp settings", match_id, selected)
+        await self._post_match_log(match_id, f"Both players are ready for {selected}; requesting lobby settings.")
         await update_match(match_id, {'status': 'checking_settings'})
         old = self._settings_tasks.pop(match_id, None)
         if old and not old.done():
@@ -828,11 +932,15 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 errors.append('не все игроки имеют статус Ready')
             if errors:
                 logger.warning("Матч #%s: проверка !mp settings не пройдена: %s", match_id, '; '.join(errors))
+                await self._post_match_log(
+                    match_id, f"Lobby validation failed for {selected}: {'; '.join(errors)}.", level="WARNING",
+                )
                 await update_match(match_id, {'status': 'waiting_ready'})
                 await self.irc.send_channel(channel, 'Lobby check failed: ' + '; '.join(errors) + '. Map/mods will be reapplied.')
                 await self._set_map_and_wait_ready(await get_match(match_id), selected)
             else:
                 logger.info("Матч #%s: !mp settings подтверждены, запускаем карту %s", match_id, selected)
+                await self._post_match_log(match_id, f"Lobby validation passed for {selected}; starting the map.")
                 await update_match(match_id, {'status': 'game_running'})
                 await self.irc.send_channel(channel, '!mp aborttimer')
                 await self.irc.send_channel(channel, '!mp start 5')
@@ -869,6 +977,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                         match_id, action['player'], action['kind'],
                     )
                     await self.irc.send_channel(match['bancho_channel'], f"{action['player']} did not ban in time. Ban skipped.")
+                    await self._post_match_log(match_id, f"{action['player']} did not ban in time; ban skipped.", level="WARNING")
                     await self._advance_action(match, None, automatic=True)
                 else:
                     if not match['available_slots']:
@@ -877,6 +986,9 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                     slot = random.SystemRandom().choice(match['available_slots'])
                     logger.info("Матч #%s: таймаут хода %s — псевдослучайный пик %s", match_id, action['player'], slot)
                     await self.irc.send_channel(match['bancho_channel'], f"{action['player']} did not pick in time. Pseudo-random pick: {slot}.")
+                    await self._post_match_log(
+                        match_id, f"{action['player']} did not pick in time; pseudo-random pick {slot}.", level="WARNING",
+                    )
                     await self._advance_action(match, slot, automatic=True)
         except asyncio.CancelledError:
             return
@@ -912,6 +1024,11 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             next_index,
             len(match['actions']),
         )
+        if slot is not None:
+            await self._post_match_log(
+                match['match_id'],
+                f"{'Automatic ' if automatic else ''}{action['kind'].title()}: {slot}.",
+            )
         updated = await get_match(match['match_id'])
         if action['kind'] == 'pick' and slot:
             await self._set_map_and_wait_ready(updated, slot)
@@ -1006,6 +1123,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             if timeout_task and not timeout_task.done():
                 timeout_task.cancel()
             logger.info("Матч #%s: %s выбрал %s (%s)", match_id, sender, slot, action['kind'])
+            await self._post_match_log(match_id, f"{action['kind'].title()}: {slot}.")
             history = [*match['history'], {'kind': action['kind'], 'player': action['player'], 'slot': slot}]
             next_index = match['action_index'] + 1
             status = 'waiting_ready' if action['kind'] == 'pick' else 'pickban'
@@ -1046,6 +1164,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             match['match_id'], match.get('selected_slot', '?'), first, second,
             first, scores[first], second, scores[second],
         )
+        await self._post_match_log(
+            match['match_id'],
+            f"Map {match.get('selected_slot', '?')} finished: {first} {scores[first]:,} — {scores[second]:,} {second}.",
+        )
         if scores[first] == scores[second]:
             slot = match.get('selected_slot')
             is_tiebreaker = bool(match.get('selected_is_tiebreaker'))
@@ -1053,6 +1175,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 "Матч #%s: ничья на карте %s; карта будет переиграна",
                 match['match_id'], slot or '?',
             )
+            await self._post_match_log(match['match_id'], f"Map {slot or '?'} was tied; replaying it.", level="WARNING")
             await self.irc.send_channel(
                 match['bancho_channel'],
                 f"Map {slot or 'unknown'} was tied. The same map will be replayed.",
@@ -1070,6 +1193,9 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             "Матч #%s: %s выиграл карту, счёт серии %s-%s",
             match['match_id'], winner, series[first], series[second],
         )
+        await self._post_match_log(
+            match['match_id'], f"{winner} won {match.get('selected_slot', '?')}; series {series[first]}-{series[second]}.",
+        )
         played = [*match.get('played_maps', []), {
             'slot': match['selected_slot'], 'scores': scores, 'winner': winner,
             'is_tiebreaker': bool(match.get('selected_is_tiebreaker')),
@@ -1077,17 +1203,26 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         wins_needed = match['best_of'] // 2 + 1
         if series[winner] >= wins_needed:
             logger.info("Матч #%s: серия завершена победой %s", match['match_id'], winner)
+            await self._post_match_log(
+                match['match_id'], f"Match completed: {winner} won {series[first]}-{series[second]}.",
+            )
             await update_match(match['match_id'], {'status': 'completed', 'series_score': series, 'played_maps': played})
             await self.irc.send_channel(match['bancho_channel'], f'{winner} wins the match {series[first]}-{series[second]}. GGWP!')
             self._schedule_room_close(match['match_id'], match['bancho_channel'])
         elif match.get('selected_is_tiebreaker'):
             logger.info("Матч #%s: тайбрейкер завершён победой %s", match['match_id'], winner)
+            await self._post_match_log(
+                match['match_id'], f"Match completed on tiebreaker: {winner} won {series[first]}-{series[second]}.",
+            )
             await update_match(match['match_id'], {'status': 'completed', 'series_score': series, 'played_maps': played})
             await self.irc.send_channel(match['bancho_channel'], f'{winner} wins the tiebreaker {series[first]}-{series[second]}. GGWP!')
             self._schedule_room_close(match['match_id'], match['bancho_channel'])
         elif match['action_index'] >= len(match['actions']):
             if series[first] == series[second]:
                 logger.info("Матч #%s: основная серия завершилась вничью, запускается TB %s", match['match_id'], match['tiebreaker_slot'])
+                await self._post_match_log(
+                    match['match_id'], f"Series tied {series[first]}-{series[second]}; setting tiebreaker {match['tiebreaker_slot']}.",
+                )
                 history = [*match['history'], {'kind': 'tiebreaker', 'player': 'automatic', 'slot': match['tiebreaker_slot']}]
                 await update_match(match['match_id'], {'series_score': series, 'played_maps': played, 'history': history})
                 updated = await get_match(match['match_id'])
@@ -1097,6 +1232,9 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 # This should only happen if no player reached the mathematical
                 # match point due to an unusual external room intervention.
                 await update_match(match['match_id'], {'status': 'completed', 'series_score': series, 'played_maps': played})
+                await self._post_match_log(
+                    match['match_id'], f"Match completed: final score {series[first]}-{series[second]}.",
+                )
         else:
             await update_match(match['match_id'], {'status': 'pickban', 'series_score': series, 'played_maps': played, 'current_map_scores': {}})
             updated = await get_match(match['match_id'])
@@ -1120,6 +1258,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             await self.irc.send_channel(channel, "!mp close")
             self.irc.forget_channel(channel)
             logger.info("Матч #%s: отправлена команда !mp close", match_id)
+            await self._post_match_log(match_id, "Sent !mp close after the farewell period.")
         except asyncio.CancelledError:
             logger.info("Матч #%s: таймер закрытия отменён", match_id)
         except Exception:

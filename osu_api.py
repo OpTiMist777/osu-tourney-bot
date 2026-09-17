@@ -182,14 +182,16 @@ class OsuClientManager:
                     "username": str(data.get("username", numeric_id)),
                 }
 
-    async def get_beatmap_star_rating(self, beatmap_id: int, mods: list[str]) -> float:
-        """Return the official star rating for a beatmap/mod combination."""
+    async def get_beatmap_star_rating(
+        self, beatmap_id: int, mods: list[str], *, ruleset: str = "osu",
+    ) -> float:
+        """Return the official star rating for a beatmap/mod/ruleset combination."""
         await self._ensure_token()
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{OSU_API_URL}/beatmaps/{beatmap_id}/attributes",
-                json={"mods": mods, "ruleset": "osu"},
+                json={"mods": mods, "ruleset": ruleset},
                 headers={
                     "Authorization": f"Bearer {self.access_token}",
                     "Accept": "application/json",

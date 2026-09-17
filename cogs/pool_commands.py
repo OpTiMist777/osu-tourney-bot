@@ -111,7 +111,8 @@ class ModerationActionsView(discord.ui.View):
         unrank_button = discord.ui.Button(
             label="Unrank",
             style=discord.ButtonStyle.danger,
-            emoji="❌",
+            # A red cross is almost invisible on Discord's red danger button.
+            emoji="📉",
             custom_id=f"pool_moderation:{pool_id}:unrank",
         )
         unrank_button.callback = self.unrank
@@ -365,21 +366,32 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         print(f"🔎 Парсинг {slot.upper()} · beatmap {beatmap_id} · режим {mode.upper()}...")
         await asyncio.sleep(self.PARSE_DELAY_SECONDS)
         beatmap = await osu_manager.get_beatmap(beatmap_id)
-        target_mode = {'std': 'osu', 'taiko': 'taiko', 'ctb': 'ctb', 'mania': 'mania', 'mania4k': 'mania', 'mania7k': 'mania'}[mode]
-        # The ID must be a difficulty playable in the pool's target ruleset.
-        # A mania difficulty must never silently become a STD pool map (and
-        # vice versa).  Standard-origin converts in the other modes still
-        # pass: their API difficulty mode is already the target ruleset.
-        if beatmap['mode'] != target_mode:
+        ruleset = get_ruleset(mode)
+        target_ruleset = ruleset.osu_ruleset
+        # `osu_api.get_beatmap()` uses the project's display name `ctb`,
+        # whereas the official attributes endpoint calls that ruleset
+        # `fruits`.
+        target_mode = {'fruits': 'ctb'}.get(target_ruleset, target_ruleset)
+        source_mode = beatmap['mode']
+        # The beatmap endpoint reports the source difficulty. In stable,
+        # `!mp map <id> <mode>` can create a Taiko/CTB/Mania convert from a
+        # standard map. Accept only that explicit conversion; a map made for
+        # another non-standard ruleset is still invalid for this pool.
+        is_std_convert = (
+            source_mode == 'osu'
+            and source_mode != target_mode
+            and ruleset.allow_std_converts
+        )
+        if source_mode != target_mode and not is_std_convert:
             mode_labels = {
                 'std': 'STD', 'taiko': 'Taiko', 'ctb': 'CTB', 'mania': 'Mania', 'mania4k': 'Mania 4K', 'mania7k': 'Mania 7K',
                 'osu': 'STD', 'fruits': 'CTB',
             }
             raise ValueError(
                 f"Карта `{beatmap_id}` не является картой **{mode_labels[mode]}**. "
-                f"Её режим: **{mode_labels.get(beatmap['mode'], beatmap['mode'])}**."
+                f"Её режим: **{mode_labels.get(source_mode, source_mode)}**."
             )
-        is_convert = bool(beatmap.get('convert', False))
+        is_convert = bool(beatmap.get('convert', False) or is_std_convert)
         stats = {
             'cs': beatmap['cs'], 'ar': beatmap['ar'], 'od': beatmap['od'],
             'bpm': beatmap['bpm'], 'length': beatmap['length'],
@@ -389,8 +401,13 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         if mode == 'std':
             stats, mod_label = self._apply_std_slot_mods(stats, slot)
         star_rating = beatmap['stars']
-        if mods:
-            star_rating = await osu_manager.get_beatmap_star_rating(beatmap_id, mods)
+        if mods or is_std_convert:
+            # osu!'s attributes endpoint accepts a target ruleset exactly
+            # when the source map can be converted to it. That gives this
+            # pool entry the correct target-mode SR rather than STD SR.
+            star_rating = await osu_manager.get_beatmap_star_rating(
+                beatmap_id, mods, ruleset=target_ruleset,
+            )
         snapshot = {
             'artist': beatmap['artist'], 'title': beatmap['title'],
             'difficulty_name': beatmap['difficulty'], 'beatmapset_id': beatmap['set_id'],

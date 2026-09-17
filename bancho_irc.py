@@ -35,15 +35,41 @@ def parse_match_settings(lines: list[str]) -> dict:
             if match:
                 settings["player_count"] = int(match.group(1))
         else:
-            slot = re.match(r"Slot\s+(\d+)\s+(.+?)\s+https?://osu\.ppy\.sh/u/(\d+)\s+(.+?)\s+\[Team\s+([^/\]]+)\s*/\s*(.*?)\]$", text, re.I)
+            # `!mp settings` appends `[Team ... / Mods]` only in team modes.
+            # A Head-to-Head room ends the line right after the username.
+            # Parse the common portion first, then extract the optional team
+            # suffix when it is present.
+            slot = re.match(
+                r"Slot\s+(\d+)\s+(.+?)\s+https?://osu\.ppy\.sh/u/(\d+)\s+(.+?)$",
+                text,
+                re.I,
+            )
             if slot:
+                username_and_team = slot.group(4).strip()
+                team = None
+                mods: list[str] = []
+                team_suffix = re.match(
+                    r"(.+?)\s+\[Team\s+([^/\]]+)\s*/\s*(.*?)\]$",
+                    username_and_team,
+                    re.I,
+                )
+                if team_suffix:
+                    username = team_suffix.group(1).strip()
+                    team = team_suffix.group(2).strip()
+                    mods = [
+                        item.strip().casefold()
+                        for item in team_suffix.group(3).split(",")
+                        if item.strip()
+                    ]
+                else:
+                    username = username_and_team
                 settings["players"].append({
                     "slot": int(slot.group(1)),
                     "status": slot.group(2).strip(),
                     "user_id": int(slot.group(3)),
-                    "username": slot.group(4).strip(),
-                    "team": slot.group(5).strip(),
-                    "mods": [item.strip().casefold() for item in slot.group(6).split(",") if item.strip()],
+                    "username": username,
+                    "team": team,
+                    "mods": mods,
                 })
     return settings
 JoinHandler = Callable[[str, str], Awaitable[None]]
