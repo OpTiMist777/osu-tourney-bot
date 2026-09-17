@@ -1,5 +1,4 @@
 aiohttp==3.13.3
-aiosu==2.3.5
 discord.py==2.6.4
 pymongo==4.16.0
 python-dotenv==1.2.1

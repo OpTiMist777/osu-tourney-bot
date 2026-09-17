@@ -5,9 +5,6 @@ from rulesets import RULESETS, get_ruleset, normalize_mode
 
 CATEGORY_FULL_NAMES = {category: name for ruleset in RULESETS.values() for category, name in ruleset.categories.items()}
 
-def is_valid_mode(mode: str) -> bool:
-    return normalize_mode(mode) in RULESETS
-
 def get_minimum_slots(mode: str) -> Dict[str, int]:
     norm_mode = normalize_mode(mode)
     return dict(get_ruleset(norm_mode).minimums)
@@ -15,55 +12,6 @@ def get_minimum_slots(mode: str) -> Dict[str, int]:
 def get_valid_categories(mode: str) -> List[str]:
     norm_mode = normalize_mode(mode)
     return list(get_ruleset(norm_mode).valid_categories)
-
-def parse_category_maps(category_maps_text: str, mode: str) -> Tuple[List[Tuple[str, int]], str]:
-    norm_mode = normalize_mode(mode)
-    valid_categories = get_valid_categories(norm_mode)
-    maps: List[Tuple[str, int]] = []
-    errors = []
-    
-    parts = re.split(r'\s+', category_maps_text.strip())
-    
-    for part in parts:
-        if not part or ':' not in part:
-            continue
-        
-        try:
-            cat_part, ids_part = part.split(':', 1)
-            category = cat_part.strip().lower()
-            ids_str = ids_part.strip()
-            
-            if category not in valid_categories and category != 'tb':
-                valid_str = ", ".join([f"`{c}`" for c in sorted(valid_categories + ['tb'])])
-                errors.append(f"❌ Недопустимая категория `{category}` для режима {norm_mode.upper()}.\nДопустимые: {valid_str}")
-                continue
-            
-            id_list = [id_str.strip() for id_str in ids_str.split(',') if id_str.strip()]
-            
-            if not id_list:
-                errors.append(f"❌ Категория `{category}` не содержит ID карт")
-                continue
-            
-            for idx, id_str in enumerate(id_list, 1):
-                try:
-                    beatmap_id = int(id_str)
-                    if beatmap_id <= 0:
-                        raise ValueError("ID должен быть положительным")
-                    
-                    slot = "TB" if category == "tb" else f"{category.upper()}{idx}"
-                    maps.append((slot, beatmap_id))
-                    
-                except ValueError:
-                    errors.append(f"❌ Неверный формат ID в `{category}`: `{id_str}` (должно быть число)")
-        
-        except Exception as e:
-            errors.append(f"❌ Ошибка обработки части `{part}`: {str(e)}")
-    
-    if errors:
-        return [], "\n".join(errors)
-    
-    return maps, ""
-
 
 def parse_spaced_category_maps(category_maps_text: str, mode: str) -> Tuple[List[Tuple[str, int]], str]:
     """Parse slash input such as ``NM:123 321 HD:456 789 TB:999``."""
@@ -165,6 +113,7 @@ def format_category_requirements(mode: str) -> str:
     lines.append("\n💡 Можно добавлять **больше карт**, чем минимальный набор!")
     return "\n".join(lines)
 
+
 def format_maps_by_category(maps: List[Dict], mode: str) -> str:
     """
     Группирует карты по категориям в строго правильном порядке для режима
@@ -219,35 +168,3 @@ def format_maps_by_category(maps: List[Dict], mode: str) -> str:
         lines.append(f"**{name}** ({len(cat_maps)}): {', '.join(links)}")
     
     return "\n".join(lines)
-
-def format_pool_cards(cards_info: list, max_per_field: int = 10) -> list[tuple[str, str]]:
-    """
-    Разбивает список карт на части для embed полей (макс. 1024 символа на поле)
-    Возвращает список кортежей (имя_поля, значение_поля)
-    """
-    fields = []
-    current_chunk = []
-    current_length = 0
-    
-    for item in cards_info:
-        item_length = len(item) + 2  # + "\n"
-        
-        if current_length + item_length > 1000 or len(current_chunk) >= max_per_field:
-            if current_chunk:
-                fields.append(("\n".join(current_chunk), len(current_chunk)))
-                current_chunk = []
-                current_length = 0
-        
-        current_chunk.append(item)
-        current_length += item_length
-    
-    if current_chunk:
-        fields.append(("\n".join(current_chunk), len(current_chunk)))
-    
-    result = []
-    total_fields = len(fields)
-    for i, (content, count) in enumerate(fields, 1):
-        name = f"Карты ({count})" if total_fields == 1 else f"Карты {i}/{total_fields} ({count})"
-        result.append((name, content))
-    
-    return result

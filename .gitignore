@@ -30,4 +30,3 @@ htmlcov/
 .DS_Store
 Thumbs.db
 tourney.sqlite.backup
-tourney.sqlite.backup

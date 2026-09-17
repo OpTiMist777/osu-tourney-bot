@@ -39,6 +39,7 @@ bot = commands.Bot(
 commands_synced = False
 osu_token_refresh_task: asyncio.Task | None = None
 moderation_views_restored = False
+live_matches_restored = False
 
 
 async def keep_osu_token_fresh() -> None:
@@ -71,6 +72,12 @@ async def on_ready():
         if pool_cog is not None:
             await pool_cog.restore_moderation_views()
             moderation_views_restored = True
+    global live_matches_restored
+    if not live_matches_restored:
+        osu_cog = bot.get_cog("osu! multiplayer")
+        if osu_cog is not None:
+            await osu_cog.restore_live_matches()
+        live_matches_restored = True
     global osu_token_refresh_task
     if osu_token_refresh_task is None or osu_token_refresh_task.done():
         osu_token_refresh_task = asyncio.create_task(keep_osu_token_fresh())

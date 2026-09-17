@@ -178,13 +178,22 @@ async def get_pool_maps(pool_id: int) -> List[Dict]:
     return list(pool.get("maps", [])) if pool else []
 
 
-async def update_pool_status(pool_id: int, new_status: str, moderator_id: int = None) -> Tuple[bool, str]:
+async def update_pool_status(
+    pool_id: int, new_status: str, moderator_id: int = None,
+    *, expected_status: str | None = None,
+) -> Tuple[bool, str]:
+    """Change a pool status, optionally only from one expected prior state."""
     try:
         updates: Dict[str, Any] = {"status": new_status}
         if new_status == "ranked":
             updates.update({"ranked_by": moderator_id, "ranked_at": _now()})
-        result = await _db().pools.update_one({"pool_id": pool_id}, {"$set": updates})
-        return result.matched_count == 1, "" if result.matched_count else "Пул не найден"
+        query: Dict[str, Any] = {"pool_id": pool_id}
+        if expected_status is not None:
+            query["status"] = expected_status
+        result = await _db().pools.update_one(query, {"$set": updates})
+        if result.matched_count == 1:
+            return True, ""
+        return False, "Статус пула уже изменён или пул не найден"
     except PyMongoError as error:
         return False, str(error)
 
@@ -244,18 +253,6 @@ async def delete_pool(pool_id: int) -> Tuple[bool, str]:
         return False, str(error)
 
 
-async def edit_pool_maps(pool_id: int, new_maps: List[Tuple[str, int]]) -> Tuple[bool, str]:
-    pool = await get_pool(pool_id)
-    if not pool:
-        return False, "Пул не найден"
-    categories = {"TB" if _slot(slot) == "TB" else "".join(filter(str.isalpha, _slot(slot))) for slot, _ in new_maps}
-    retained = [item for item in pool.get("maps", []) if ("TB" if item["slot"] == "TB" else "".join(filter(str.isalpha, item["slot"]))) not in categories]
-    retained.extend({"slot": _slot(slot), "beatmap_id": beatmap_id, "beatmapset_id": 0,
-                     "difficulty_name": "Unknown", "mods": None} for slot, beatmap_id in new_maps)
-    await _db().pools.update_one({"pool_id": pool_id}, {"$set": {"maps": retained}})
-    return True, ""
-
-
 async def update_pool_map(pool_id: int, slot: str, beatmap_id: int, snapshot: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
     slot = _slot(slot)
     result = await _db().pools.update_one(
@@ -291,6 +288,22 @@ async def get_active_match_by_bancho_channel(channel: str) -> Optional[Dict]:
         sort=[("match_id", DESCENDING)],
     ))
 
+
+async def get_live_matches() -> List[Dict]:
+    """Return every match that still requires Bancho IRC management."""
+    cursor = _db().matches.find(
+        {
+            "status": {
+                "$in": [
+                    "waiting_players", "pickban", "waiting_ready",
+                    "checking_settings", "game_running",
+                ],
+            },
+        },
+        {"_id": 0},
+    ).sort("match_id", ASCENDING)
+    return [item async for item in cursor]
+
 async def create_match(document: Dict[str, Any]) -> int:
     """Persist a Discord-managed test match and return its public ID."""
     match_id = await _next_match_id()
@@ -312,22 +325,6 @@ async def get_active_match_for_osu_users(osu_user_ids: List[int]) -> Optional[Di
     return _pool(await _db().matches.find_one(
         {
             "player_osu_ids": {"$in": ids},
-            "status": {
-                "$in": [
-                    "waiting_players", "pickban", "waiting_ready",
-                    "checking_settings", "game_running",
-                ],
-            },
-        },
-        sort=[("match_id", DESCENDING)],
-    ))
-
-
-async def get_active_match_in_channel(channel_id: int) -> Optional[Dict]:
-    """Return the most recent active match displayed in a Discord channel."""
-    return _pool(await _db().matches.find_one(
-        {
-            "discord_channel_id": channel_id,
             "status": {
                 "$in": [
                     "waiting_players", "pickban", "waiting_ready",

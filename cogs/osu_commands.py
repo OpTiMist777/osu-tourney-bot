@@ -17,6 +17,7 @@ from database import (
     create_match, get_match, get_pool_by_name, update_match,
     get_active_match_by_bancho_channel, get_match_by_bancho_channel,
     get_active_match_for_osu_users,
+    get_live_matches,
     create_osu_login_challenge, delete_osu_login_challenge,
     complete_osu_login, get_osu_account_by_discord, get_osu_login_challenge,
     update_osu_account_username,
@@ -134,6 +135,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         self._invite_tasks: dict[int, asyncio.Task] = {}
         self._action_timeout_tasks: dict[int, asyncio.Task] = {}
         self._settings_tasks: dict[int, asyncio.Task] = {}
+        self._action_locks: dict[int, asyncio.Lock] = {}
 
     def cog_unload(self) -> None:
         # discord.py calls cog_unload synchronously; do not leave an unawaited
@@ -147,6 +149,26 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         for task in self._settings_tasks.values():
             task.cancel()
         self.bot.loop.create_task(self.irc.close())
+
+    def _action_lock(self, match_id: int) -> asyncio.Lock:
+        """Return the per-match lock shared by slot messages and timeouts."""
+        return self._action_locks.setdefault(match_id, asyncio.Lock())
+
+    async def restore_live_matches(self) -> None:
+        """Rejoin and resume persisted live rooms after a bot process restart."""
+        matches = await get_live_matches()
+        if not matches:
+            logger.info("Bancho IRC: активных матчей для восстановления нет")
+            return
+        if not self.irc.configured:
+            logger.error("Bancho IRC: невозможно восстановить %s матчей — IRC не настроен", len(matches))
+            return
+        logger.info("Bancho IRC: восстанавливаю активные матчи: %s", len(matches))
+        for match in matches:
+            try:
+                await self.irc.restore_channel(match['bancho_channel'])
+            except Exception:
+                logger.exception("Матч #%s: не удалось восстановить MP-комнату", match['match_id'])
 
     @staticmethod
     def _embed(match: dict) -> discord.Embed:
@@ -473,7 +495,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             }
             for item in pool['maps']
         }
-        match_id = await create_match({'status':'waiting_players', 'discord_channel_id':interaction.channel_id, 'discord_message_id':None, 'bancho_channel':channel, 'bancho_match_id':channel.removeprefix('#mp_'), 'pool_id':pool['pool_id'], 'pool_name':pool['name'], 'mode':pool['mode'], 'players':[player_one_name, player_two_name], 'player_osu_ids':[int(player_one_account['osu_user_id']), int(player_two_account['osu_user_id'])], 'joined_players':[], 'roll_winner':winner, 'roll_loser':loser, 'best_of':best_of, 'bans_per_player':bans, 'actions':_actions(best_of,bans,loser,winner), 'action_index':0, 'available_slots':slots, 'tiebreaker_slot':tiebreaker, 'map_choices':map_choices, 'history':[]})
+        match_id = await create_match({'status':'waiting_players', 'discord_channel_id':interaction.channel_id, 'discord_message_id':None, 'bancho_channel':channel, 'bancho_match_id':channel.removeprefix('#mp_'), 'pool_id':pool['pool_id'], 'pool_name':pool['name'], 'mode':pool['mode'], 'players':[player_one_name, player_two_name], 'player_osu_ids':[int(player_one_account['osu_user_id']), int(player_two_account['osu_user_id'])], 'joined_players':[], 'join_deadline':datetime.now(timezone.utc) + timedelta(minutes=5), 'roll_winner':winner, 'roll_loser':loser, 'best_of':best_of, 'bans_per_player':bans, 'actions':_actions(best_of,bans,loser,winner), 'action_index':0, 'available_slots':slots, 'tiebreaker_slot':tiebreaker, 'map_choices':map_choices, 'history':[]})
         logger.info("Матч #%s сохранён: %s, roll winner=%s", match_id, channel, winner)
         await self.irc.send_channel(channel, 'Waiting for both players to join before the roll.')
         match = await get_match(match_id)
@@ -487,19 +509,29 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
     async def _send_invites_for_five_minutes(self, match_id: int, channel: str, players: list[str]) -> None:
         """Send one invite round per minute during the full five-minute join window."""
         try:
-            for attempt in range(1, 6):
+            attempt = 0
+            while True:
                 match = await get_match_by_bancho_channel(channel)
                 if not match or match['status'] != 'waiting_players':
                     return
+                deadline = match.get('join_deadline')
+                if not isinstance(deadline, datetime):
+                    # Matches created before the deadline was persisted get a
+                    # fresh full window when they are recovered after restart.
+                    deadline = datetime.now(timezone.utc) + timedelta(minutes=5)
+                    await update_match(match_id, {'join_deadline': deadline})
+                elif deadline.tzinfo is None:
+                    deadline = deadline.replace(tzinfo=timezone.utc)
+                seconds_left = (deadline - datetime.now(timezone.utc)).total_seconds()
+                if seconds_left <= 0:
+                    break
+                attempt += 1
                 joined = {_nick(name) for name in match.get('joined_players', [])}
                 for player in players:
                     if _nick(player) not in joined:
                         await self.irc.send_channel(channel, f'!mp invite {_invite_target(match, player)}')
-                logger.info("Матч #%s: раунд инвайтов %s/5", match_id, attempt)
-                # The fifth invite is sent at minute four; wait through minute
-                # five before cancelling the lobby so players receive the full
-                # five-minute join window promised by the command.
-                await asyncio.sleep(60)
+                logger.info("Матч #%s: раунд инвайтов %s, осталось %.0f с", match_id, attempt, seconds_left)
+                await asyncio.sleep(min(60, seconds_left))
             logger.info("Матч #%s: пятиминутное окно входа завершено", match_id)
             match = await get_match_by_bancho_channel(channel)
             if match and match['status'] == 'waiting_players':
@@ -662,10 +694,13 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                         await self._mark_player_joined(username, channel)
                 refreshed = await get_match_by_bancho_channel(channel)
                 if refreshed and refreshed['status'] == 'waiting_players':
-                    joined = {_nick(player) for player in refreshed.get('joined_players', [])}
-                    for player in refreshed['players']:
-                        if _nick(player) not in joined:
-                            await self.irc.send_channel(channel, f'!mp invite {_invite_target(refreshed, player)}')
+                    invite_task = self._invite_tasks.get(match_id)
+                    if not invite_task or invite_task.done():
+                        self._invite_tasks[match_id] = asyncio.create_task(
+                            self._send_invites_for_five_minutes(
+                                match_id, channel, refreshed['players'],
+                            )
+                        )
                     await self._refresh_discord(match_id)
                 return
 
@@ -773,16 +808,23 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             required = _mod_tokens(choice.get('mods', ''))
             active = _mod_tokens(settings.get('active_mods', ''))
             if 'freemod' in required:
-                if 'freemod' not in active:
-                    errors.append('в комнате не включён FreeMod')
+                # NoFail is a per-player mod in FreeMod rooms, not a global
+                # room mod reported by `Active mods`.
+                if active != {'freemod'}:
+                    errors.append(f"глобальные моды {settings.get('active_mods', 'None')} вместо FreeMod")
                 for player in settings.get('players', []):
                     if 'nf' not in _mod_tokens(','.join(player.get('mods', []))):
                         errors.append(f"у игрока {player.get('username', '?')} не включён NoFail")
-            elif not required.issubset(active):
+            elif active != required:
                 errors.append(f"моды {settings.get('active_mods', 'None')} вместо {choice.get('mods', 'nf')}")
             if settings.get('player_count') != 2 or len(settings.get('players', [])) < 2:
                 errors.append('в лобби не подтверждены оба игрока')
-            elif any(player.get('status', '').casefold() != 'ready' for player in settings.get('players', [])):
+            else:
+                expected_ids = {int(user_id) for user_id in match.get('player_osu_ids', [])}
+                actual_ids = {int(player['user_id']) for player in settings.get('players', [])}
+                if expected_ids and actual_ids != expected_ids:
+                    errors.append('в лобби находятся не те участники матча')
+            if len(settings.get('players', [])) >= 2 and any(player.get('status', '').casefold() != 'ready' for player in settings.get('players', [])):
                 errors.append('не все игроки имеют статус Ready')
             if errors:
                 logger.warning("Матч #%s: проверка !mp settings не пройдена: %s", match_id, '; '.join(errors))
@@ -813,25 +855,29 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
     async def _action_timeout(self, match_id: int) -> None:
         try:
             await asyncio.sleep(self.ACTION_TIMER_SECONDS)
-            match = await get_match(match_id)
-            if not match or match['status'] != 'pickban':
-                return
-            action = match['actions'][match['action_index']]
-            if action['kind'] == 'ban':
-                logger.info(
-                    "Матч #%s: таймаут хода %s — бан пропущен (%s)",
-                    match_id, action['player'], action['kind'],
-                )
-                await self.irc.send_channel(match['bancho_channel'], f"{action['player']} did not ban in time. Ban skipped.")
-                await self._advance_action(match, None, automatic=True)
-            else:
-                if not match['available_slots']:
-                    logger.error("Матч #%s: таймаут пика, но доступных слотов не осталось", match_id)
+            # The same lock is held while handling a manual slot message. A
+            # slot arriving on the timer boundary therefore cannot be applied
+            # together with the automatic fallback for the same action.
+            async with self._action_lock(match_id):
+                match = await get_match(match_id)
+                if not match or match['status'] != 'pickban':
                     return
-                slot = random.SystemRandom().choice(match['available_slots'])
-                logger.info("Матч #%s: таймаут хода %s — псевдослучайный пик %s", match_id, action['player'], slot)
-                await self.irc.send_channel(match['bancho_channel'], f"{action['player']} did not pick in time. Pseudo-random pick: {slot}.")
-                await self._advance_action(match, slot, automatic=True)
+                action = match['actions'][match['action_index']]
+                if action['kind'] == 'ban':
+                    logger.info(
+                        "Матч #%s: таймаут хода %s — бан пропущен (%s)",
+                        match_id, action['player'], action['kind'],
+                    )
+                    await self.irc.send_channel(match['bancho_channel'], f"{action['player']} did not ban in time. Ban skipped.")
+                    await self._advance_action(match, None, automatic=True)
+                else:
+                    if not match['available_slots']:
+                        logger.error("Матч #%s: таймаут пика, но доступных слотов не осталось", match_id)
+                        return
+                    slot = random.SystemRandom().choice(match['available_slots'])
+                    logger.info("Матч #%s: таймаут хода %s — псевдослучайный пик %s", match_id, action['player'], slot)
+                    await self.irc.send_channel(match['bancho_channel'], f"{action['player']} did not pick in time. Pseudo-random pick: {slot}.")
+                    await self._advance_action(match, slot, automatic=True)
         except asyncio.CancelledError:
             return
         except Exception:
@@ -936,45 +982,49 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 match['match_id'], sender, ', '.join(match['available_slots']),
             )
             return
-        # Bancho's visible countdown is authoritative for the lobby.  Cancel
-        # it in-game before handling a timely action; the next phase starts a
-        # fresh `!mp timer 90` where appropriate.
-        await self.irc.send_channel(channel, '!mp aborttimer')
-        timeout_task = self._action_timeout_tasks.pop(match['match_id'], None)
-        if timeout_task and not timeout_task.done():
-            timeout_task.cancel()
-        logger.info("Матч #%s: %s выбрал %s (%s)", match['match_id'], sender, slot, action['kind'])
-        history = [*match['history'], {'kind':action['kind'], 'player':action['player'], 'slot':slot}]; next_index = match['action_index'] + 1
-        # A picked map must be played before the next pick/ban turn. The final
-        # regulation pick follows the same rule; TB remains reserved for the
-        # deciding game and is not started at this stage.
-        status = 'waiting_ready' if action['kind'] == 'pick' else 'pickban'
-        await update_match(match['match_id'], {
-            'history': history,
-            'available_slots': [x for x in match['available_slots'] if x != slot],
-            'action_index': next_index,
-            'status': status,
-            'selected_slot': slot if action['kind'] == 'pick' else None,
-        })
-        logger.info(
-            "Матч #%s: ход %s обработан, следующий статус=%s (%s/%s)",
-            match['match_id'], action['kind'], status, next_index, len(match['actions']),
-        )
-        updated = await get_match(match['match_id'])
-        if action['kind'] == 'pick':
-            await self._set_map_and_wait_ready(updated, slot)
-        else:
-            turn = updated['actions'][next_index]
-            await self.irc.send_channel(channel, f'{slot} {action["kind"]}ed by {action["player"]}. {turn["player"]}: {turn["kind"]} a slot.')
-            await self.irc.send_channel(channel, f'!mp timer {self.ACTION_TIMER_SECONDS}')
-            self._schedule_action_timeout(match['match_id'])
-        try:
-            discord_channel = self.bot.get_channel(updated['discord_channel_id'])
-            if discord_channel and updated.get('discord_message_id'):
-                message = await discord_channel.fetch_message(updated['discord_message_id'])
-                await message.edit(embed=self._embed(updated))
-        except discord.DiscordException:
-            logger.warning("Матч #%s: не удалось обновить Discord-сообщение", match['match_id'])
+        await self._handle_manual_action(match['match_id'], sender, channel, slot)
+
+    async def _handle_manual_action(
+        self, match_id: int, sender: str, channel: str, slot: str,
+    ) -> None:
+        """Atomically consume one valid player slot message for a match."""
+        async with self._action_lock(match_id):
+            # The timer or a duplicate message may have advanced the match
+            # while this message waited for the lock. Always use fresh state.
+            match = await get_match(match_id)
+            if not match or match.get('status') != 'pickban':
+                return
+            action = match['actions'][match['action_index']]
+            if _nick(sender) != _nick(action['player']) or slot not in match['available_slots']:
+                return
+
+            # Bancho's visible countdown is authoritative for the lobby. Cancel
+            # it before handling a timely action; the next phase gets a fresh
+            # `!mp timer 90` where appropriate.
+            await self.irc.send_channel(channel, '!mp aborttimer')
+            timeout_task = self._action_timeout_tasks.pop(match_id, None)
+            if timeout_task and not timeout_task.done():
+                timeout_task.cancel()
+            logger.info("Матч #%s: %s выбрал %s (%s)", match_id, sender, slot, action['kind'])
+            history = [*match['history'], {'kind': action['kind'], 'player': action['player'], 'slot': slot}]
+            next_index = match['action_index'] + 1
+            status = 'waiting_ready' if action['kind'] == 'pick' else 'pickban'
+            await update_match(match_id, {
+                'history': history,
+                'available_slots': [item for item in match['available_slots'] if item != slot],
+                'action_index': next_index,
+                'status': status,
+                'selected_slot': slot if action['kind'] == 'pick' else None,
+            })
+            updated = await get_match(match_id)
+            if action['kind'] == 'pick':
+                await self._set_map_and_wait_ready(updated, slot)
+            else:
+                turn = updated['actions'][next_index]
+                await self.irc.send_channel(channel, f'{slot} banned by {action["player"]}. {turn["player"]}: {turn["kind"]} a slot.')
+                await self.irc.send_channel(channel, f'!mp timer {self.ACTION_TIMER_SECONDS}')
+                self._schedule_action_timeout(match_id)
+        await self._refresh_discord(match_id)
 
     async def _finish_played_map(self, match: dict) -> None:
         """Store a finished map, update series score, then open the next phase."""

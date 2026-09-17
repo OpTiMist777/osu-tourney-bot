@@ -208,28 +208,5 @@ class OsuClientManager:
                     raise RuntimeError("osu! API did not return a star rating")
                 return round(float(star_rating), 2)
     
-    async def validate_beatmap_for_slot(self, beatmap_id: int, slot: str, mode: str) -> tuple[bool, str]:
-        """Валидирует битмап для слота (конверты ВСЕГДА разрешены)"""
-        try:
-            beatmap_data = await self.get_beatmap(beatmap_id)
-            
-            mode_map = {
-                'std': 'osu',
-                'taiko': 'taiko',
-                'ctb': 'ctb',
-                'mania': 'mania'
-            }
-            
-            expected_mode = mode_map.get(mode, 'osu')
-            if beatmap_data['mode'] != expected_mode:
-                return False, f"❌ Режим карты: `{beatmap_data['mode']}`, требуется: `{expected_mode}`"
-            
-            return True, f"✅ {beatmap_data['artist']} - {beatmap_data['title']} [{beatmap_data['difficulty']}] ({beatmap_data['stars']}★)"
-        
-        except ValueError as e:
-            return False, str(e)
-        except Exception as e:
-            return False, str(e)
-
 # Глобальный экземпляр менеджера
 osu_manager = OsuClientManager()

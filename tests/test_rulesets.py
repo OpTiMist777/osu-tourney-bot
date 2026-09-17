@@ -4,7 +4,7 @@ from rulesets import MANIA_4K_RULES, MANIA_RULES, get_ruleset, normalize_mode
 from utils import (
     format_category_requirements,
     format_maps_by_category,
-    parse_category_maps,
+    parse_spaced_category_maps,
     validate_pool_maps,
 )
 
@@ -16,8 +16,8 @@ class TestRulesets(unittest.TestCase):
         self.assertIs(get_ruleset("mania"), MANIA_4K_RULES)
         self.assertIs(MANIA_RULES, MANIA_4K_RULES)
 
-    def test_parse_category_maps(self) -> None:
-        maps, error = parse_category_maps("nm:123,456 hd:789 tb:999", "std")
+    def test_parse_spaced_category_maps(self) -> None:
+        maps, error = parse_spaced_category_maps("nm:123 456 hd:789 tb:999", "std")
         self.assertEqual(error, "")
         self.assertEqual(maps, [("NM1", 123), ("NM2", 456), ("HD1", 789), ("TB", 999)])
 

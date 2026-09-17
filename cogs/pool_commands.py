@@ -11,8 +11,7 @@ from database import (
 )
 from osu_api import osu_manager
 from utils import (
-    normalize_mode, is_valid_mode, parse_category_maps, validate_pool_maps,
-    parse_spaced_category_maps, format_category_requirements, format_pool_cards,
+    validate_pool_maps, parse_spaced_category_maps, format_category_requirements,
     CATEGORY_FULL_NAMES
 )
 from rulesets import get_ruleset
@@ -227,7 +226,10 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             return False, "❌ Пул не найден."
         if pool['status'] != 'pending':
             return False, f"❌ Пул уже в статусе `{pool['status']}`."
-        success, error = await update_pool_status(pool_id, status, moderator.id if status == 'ranked' else None)
+        success, error = await update_pool_status(
+            pool_id, status, moderator.id if status == 'ranked' else None,
+            expected_status='pending',
+        )
         if not success:
             return False, f"❌ Ошибка при обновлении статуса: {error}"
         action = 'rank' if status == 'ranked' else 'unrank'
@@ -313,12 +315,12 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         if await pool_name_in_use_for_review(pool['name'], pool_id):
             return False, "❌ Нельзя отправить пул: название уже используется пулом на модерации или в рейтинге."
 
-        success, error = await update_pool_status(pool_id, 'pending')
+        success, error = await update_pool_status(pool_id, 'pending', expected_status='draft')
         if not success:
             return False, f"❌ Ошибка при обновлении статуса: {error}"
         posted, post_error = await self.repost_pending_pool(pool)
         if not posted:
-            await update_pool_status(pool_id, 'draft')
+            await update_pool_status(pool_id, 'draft', expected_status='pending')
             return False, f"❌ Не удалось отправить пул в чат модераторов: {post_error}"
         await log_moderation_action(pool_id, 'submit', author.id)
         return True, "✅ Пул отправлен в чат модераторов и ожидает проверки."
@@ -489,7 +491,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             return False, f"❌ Ошибка сохранения карты: {error}", None
 
         if pool['status'] == 'unranked':
-            await update_pool_status(pool_id, 'draft')
+            await update_pool_status(pool_id, 'draft', expected_status='unranked')
         await log_moderation_action(pool_id, 'add' if is_adding else 'edit', author.id, f"{slot_clean}→{beatmap_id}")
         updated_maps = await get_pool_maps(pool_id)
         valid, _ = validate_pool_maps([(item['slot'], item['beatmap_id']) for item in updated_maps], pool['mode'])

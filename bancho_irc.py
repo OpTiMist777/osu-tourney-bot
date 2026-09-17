@@ -159,6 +159,20 @@ class BanchoIRC:
         if removed:
             logger.info("Bancho IRC: MP-комната исключена из reconnect: %s", removed)
 
+    async def restore_channel(self, channel: str) -> None:
+        """Rejoin one persisted MP room after a full bot-process restart."""
+        if not channel.casefold().startswith("#mp_"):
+            raise ValueError("Only multiplayer channels can be restored")
+        self._channels[channel.casefold()] = channel
+        await self.connect()
+        await self._send(f"JOIN {channel}")
+        logger.info("IRC → восстановительный JOIN %s", channel)
+        # Bancho has no portable standalone JOIN acknowledgement. Give the room
+        # a moment to attach before restoring the persisted match state.
+        await asyncio.sleep(0.5)
+        if self.reconnect_handler:
+            await self.reconnect_handler(channel)
+
     def set_keep_connected(self, enabled: bool) -> None:
         """Keep the IRC session alive even when no MP room is active."""
         self._keep_connected = enabled
@@ -337,7 +351,12 @@ class BanchoIRC:
                 if not message: continue
                 sender, target, text = message.groups()
                 url = self.MATCH_URL.search(text)
-                if sender.casefold() == "banchobot" and url and self._match_waiter:
+                if (
+                    sender.casefold() == "banchobot"
+                    and target.casefold() == self.username.replace(" ", "_").casefold()
+                    and url
+                    and self._match_waiter
+                ):
                     waiter, requested_name = self._match_waiter
                     # BanchoBot includes the room name in its confirmation.
                     # Checking it prevents a delayed response for an earlier

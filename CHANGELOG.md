@@ -5,6 +5,51 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.2] - 2026-09-17
+
+Reliability and code-cleanup release for the no-rating multiplayer test build.
+
+### Added
+
+- Added restoration of active MP rooms after a full bot-process restart:
+  - persisted live matches are rejoined through IRC;
+  - the current pick/ban, ready-check, or running-game state is restored;
+  - the five-minute player join deadline is stored in MongoDB and survives a
+    restart.
+- Added per-match action locks, preventing a player action and its timeout
+  fallback from being applied at the same time.
+- Added conditional pool-status updates, preventing two moderators from
+  overwriting each other's decision for the same pending pool.
+- Added validation that the two users currently in an MP room match the two
+  persisted osu! account IDs for the match.
+
+### Changed
+
+- Tightened `!mp settings` validation: fixed-mod rooms must have exactly the
+  expected mods, while FreeMod rooms must use FreeMod globally and NoFail for
+  each player.
+- A Discord channel may still host any number of concurrent matches; the
+  one-active-match restriction applies only to participating osu! accounts.
+- Disabled loading of the legacy `base_commands` cog while retaining its source
+  for possible future work.
+- Removed unused database helpers, pool-formatting helpers, an obsolete osu!
+  API validation method, and the unused `aiosu` dependency.
+
+### Fixed
+
+- Fixed a race where a delayed BanchoBot room-creation response could be
+  mistaken for the wrong `!mp make` request.
+- Fixed recovered matches with missing players becoming stuck without a running
+  invite timer.
+- Fixed the five-minute join window so it does not restart after reconnecting
+  or restarting the bot.
+- Removed a duplicate SQLite-backup rule from `.gitignore`.
+
+### Testing
+
+- `py -m unittest discover -s tests -v` — 5 tests passed.
+- Python bytecode compilation completed successfully for the project modules.
+
 ## [0.1.1] - 2026-09-17
 
 Maintenance release for the first no-rating match test build, focused on
