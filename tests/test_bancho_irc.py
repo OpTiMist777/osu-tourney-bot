@@ -52,6 +52,23 @@ class TestBanchoSettings(unittest.TestCase):
             ],
         )
 
+    def test_parse_head_to_head_freemod_player_mods(self) -> None:
+        settings = parse_match_settings(
+            [
+                "Team mode: HeadToHead, Win condition: ScoreV2",
+                "Active mods: Freemod",
+                "Players: 2",
+                "Slot 1  Ready     https://osu.ppy.sh/u/35998757 f1ks14 [NoFail, Mirror]",
+                "Slot 2  Ready     https://osu.ppy.sh/u/32246015 Nekish [No Fail, Fade In, Hidden, Flashlight]",
+            ]
+        )
+
+        self.assertEqual(settings["players"][0]["mods"], ["nofail", "mirror"])
+        self.assertEqual(
+            settings["players"][1]["mods"],
+            ["no fail", "fade in", "hidden", "flashlight"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

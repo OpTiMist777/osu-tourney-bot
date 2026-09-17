@@ -35,10 +35,10 @@ def parse_match_settings(lines: list[str]) -> dict:
             if match:
                 settings["player_count"] = int(match.group(1))
         else:
-            # `!mp settings` appends `[Team ... / Mods]` only in team modes.
-            # A Head-to-Head room ends the line right after the username.
-            # Parse the common portion first, then extract the optional team
-            # suffix when it is present.
+            # Team rooms append `[Team ... / Mods]`. Head-to-Head rooms can
+            # end after the username, or append a plain `[Mods]` suffix in a
+            # FreeMod lobby. Parse the common portion first, then extract an
+            # optional suffix.
             slot = re.match(
                 r"Slot\s+(\d+)\s+(.+?)\s+https?://osu\.ppy\.sh/u/(\d+)\s+(.+?)$",
                 text,
@@ -62,7 +62,16 @@ def parse_match_settings(lines: list[str]) -> dict:
                         if item.strip()
                     ]
                 else:
-                    username = username_and_team
+                    mods_suffix = re.match(r"(.+?)\s+\[(.*?)\]$", username_and_team)
+                    if mods_suffix:
+                        username = mods_suffix.group(1).strip()
+                        mods = [
+                            item.strip().casefold()
+                            for item in mods_suffix.group(2).split(",")
+                            if item.strip()
+                        ]
+                    else:
+                        username = username_and_team
                 settings["players"].append({
                     "slot": int(slot.group(1)),
                     "status": slot.group(2).strip(),

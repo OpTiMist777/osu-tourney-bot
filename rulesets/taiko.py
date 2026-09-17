@@ -6,6 +6,6 @@ TAIKO_RULES = ModeRules(
     minimums={"nm": 3, "hd": 2, "hr": 2, "dt": 2, "fm": 1, "tb": 1},
     optional_categories=(),
     category_order=("nm", "hd", "hr", "dt", "fm", "tb"),
-    slot_mods={"nm": (), "hd": ("HD",), "hr": ("HR",), "dt": ("DT",), "fm": (), "tb": ()},
+    slot_mods={"nm": (), "hd": ("HD",), "hr": ("HR",), "dt": ("DT",), "fm": ("FreeMod",), "tb": ("FreeMod",)},
     allow_std_converts=True,
 )

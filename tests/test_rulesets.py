@@ -16,6 +16,13 @@ class TestRulesets(unittest.TestCase):
         self.assertIs(get_ruleset("mania"), MANIA_4K_RULES)
         self.assertIs(MANIA_RULES, MANIA_4K_RULES)
 
+    def test_mania_categories_are_configured_as_freemod(self) -> None:
+        self.assertEqual(
+            {MANIA_4K_RULES.mods_for_slot(slot) for slot in ("RC1", "HB1", "LN1", "SV1", "TB")},
+            {("FreeMod",)},
+        )
+        self.assertEqual(get_ruleset("mania7k").mods_for_slot("EX1"), ("FreeMod",))
+
     def test_parse_spaced_category_maps(self) -> None:
         maps, error = parse_spaced_category_maps("nm:123 456 hd:789 tb:999", "std")
         self.assertEqual(error, "")

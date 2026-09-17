@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.4] - 2026-09-17
+
+Mania FreeMod rules and lobby-mod validation update.
+
+### Changed
+
+- Moved multiplayer mod configuration to the per-mode rulesets. FreeMod slots
+  and tiebreakers in every supported mode are now declared by their ruleset
+  instead of being hard-coded in the match flow.
+- Configured every Mania 4K category (`RC`, `HB`, `LN`, `SV`, `TB`) and every
+  Mania 7K category (`RC`, `HB`, `LN`, `EX`, `TB`) as FreeMod.
+- Mania maps now always use `!mp mods nf freemod`.
+
+### Fixed
+
+- Fixed H2H FreeMod `!mp settings` parsing to read personal player mods from
+  the optional `[Mods]` suffix.
+- Mania lobby validation now requires NoFail for every player and permits only
+  the optional personal mods Mirror, Fade In, Hidden, and Flashlight.
+
+### Testing
+
+- `venv\\Scripts\\python.exe -m unittest discover -s tests -v` — 12 tests passed.
+- Python bytecode compilation completed successfully for updated modules.
+
 ## [0.1.3] - 2026-09-17
 
 Match observability and cross-ruleset pool parsing fixes for the no-rating

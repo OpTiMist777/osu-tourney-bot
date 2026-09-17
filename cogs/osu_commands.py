@@ -36,6 +36,20 @@ class MultiplayerMod(str, Enum):
     HARD_ROCK = "hr"
     DOUBLE_TIME = "dt"
     FREE_MOD = "freemod"
+    MIRROR = "mr"
+    FADE_IN = "fi"
+    FLASHLIGHT = "fl"
+
+
+# These are optional personal mods in Mania FreeMod rooms. NoFail is mandatory
+# for every player, while the other listed mods may be used or omitted.
+MANIA_ALLOWED_PLAYER_MODS = frozenset({
+    MultiplayerMod.NO_FAIL.value,
+    MultiplayerMod.MIRROR.value,
+    MultiplayerMod.FADE_IN.value,
+    MultiplayerMod.HIDDEN.value,
+    MultiplayerMod.FLASHLIGHT.value,
+})
 
 def _nick(value: str) -> str:
     return value.strip().strip('[]').replace('_', ' ').casefold()
@@ -92,24 +106,43 @@ def _ordered_slots(maps: list[dict], mode: str) -> list[str]:
 
 def _multiplayer_mods(slot: str, mode: str) -> str:
     """Return the ladder's enforced `!mp mods` combination for a picked slot."""
-    category = get_ruleset(mode).category_from_slot(slot)
-    variants = {
-        "hd": (MultiplayerMod.NO_FAIL, MultiplayerMod.HIDDEN),
-        "hr": (MultiplayerMod.NO_FAIL, MultiplayerMod.HARD_ROCK),
-        "dt": (MultiplayerMod.NO_FAIL, MultiplayerMod.DOUBLE_TIME),
-        "fm": (MultiplayerMod.NO_FAIL, MultiplayerMod.FREE_MOD),
-        "tb": (MultiplayerMod.NO_FAIL, MultiplayerMod.FREE_MOD),
+    ruleset = get_ruleset(mode)
+    bancho_mods = {
+        "nf": MultiplayerMod.NO_FAIL.value,
+        "nofail": MultiplayerMod.NO_FAIL.value,
+        "hd": MultiplayerMod.HIDDEN.value,
+        "hidden": MultiplayerMod.HIDDEN.value,
+        "hr": MultiplayerMod.HARD_ROCK.value,
+        "hardrock": MultiplayerMod.HARD_ROCK.value,
+        "dt": MultiplayerMod.DOUBLE_TIME.value,
+        "doubletime": MultiplayerMod.DOUBLE_TIME.value,
+        "fm": MultiplayerMod.FREE_MOD.value,
+        "freemod": MultiplayerMod.FREE_MOD.value,
     }
-    return " ".join(item.value for item in variants.get(category, (MultiplayerMod.NO_FAIL,)))
+    configured_mods = tuple(
+        bancho_mods[modifier.replace(" ", "").casefold()]
+        for modifier in ruleset.mods_for_slot(slot)
+    )
+    return " ".join(dict.fromkeys((MultiplayerMod.NO_FAIL.value, *configured_mods)))
 
 def _mod_tokens(value: str) -> set[str]:
+    normalized = value.casefold()
+    for source, target in {
+        'no fail': 'nofail',
+        'hard rock': 'hardrock',
+        'double time': 'doubletime',
+        'free mod': 'freemod',
+        'fade in': 'fadein',
+        'fade-in': 'fadein',
+    }.items():
+        normalized = normalized.replace(source, target)
     aliases = {
-        'nofail': 'nf', 'no fail': 'nf', 'hidden': 'hd',
-        'hardrock': 'hr', 'hard rock': 'hr', 'doubletime': 'dt',
-        'double time': 'dt', 'freemod': 'freemod', 'free mod': 'freemod',
+        'nofail': 'nf', 'hidden': 'hd',
+        'hardrock': 'hr', 'doubletime': 'dt', 'freemod': 'freemod',
+        'mirror': 'mr', 'fadein': 'fi', 'flashlight': 'fl',
     }
-    return {aliases.get(part.strip().casefold(), part.strip().casefold())
-            for part in re.split(r'[,|+ ]+', value) if part.strip()}
+    return {aliases.get(part.strip(), part.strip())
+            for part in re.split(r'[,|+ ]+', normalized) if part.strip()}
 
 class OsuCommands(commands.Cog, name="osu! multiplayer"):
     ACTION_TIMER_SECONDS = 90
@@ -917,8 +950,16 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 if active != {'freemod'}:
                     errors.append(f"глобальные моды {settings.get('active_mods', 'None')} вместо FreeMod")
                 for player in settings.get('players', []):
-                    if 'nf' not in _mod_tokens(','.join(player.get('mods', []))):
+                    player_mods = _mod_tokens(','.join(player.get('mods', [])))
+                    if 'nf' not in player_mods:
                         errors.append(f"у игрока {player.get('username', '?')} не включён NoFail")
+                    if get_ruleset(match['mode']).osu_ruleset == 'mania':
+                        disallowed = player_mods - MANIA_ALLOWED_PLAYER_MODS
+                        if disallowed:
+                            errors.append(
+                                f"у игрока {player.get('username', '?')} недопустимые моды: "
+                                f"{', '.join(sorted(disallowed))}"
+                            )
             elif active != required:
                 errors.append(f"моды {settings.get('active_mods', 'None')} вместо {choice.get('mods', 'nf')}")
             if settings.get('player_count') != 2 or len(settings.get('players', [])) < 2:
