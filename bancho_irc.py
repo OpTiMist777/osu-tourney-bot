@@ -413,6 +413,7 @@ class BanchoIRC:
                 if not message: continue
                 sender, target, text = message.groups()
                 url = self.MATCH_URL.search(text)
+                creation_confirmed = False
                 if (
                     sender.casefold() == "banchobot"
                     and target.casefold() == self.username.replace(" ", "_").casefold()
@@ -425,7 +426,8 @@ class BanchoIRC:
                     # `!mp make` request from being assigned to a later match.
                     if requested_name.casefold() in text.casefold() and not waiter.done():
                         waiter.set_result(url.group(1))
-                if sender.casefold() == "banchobot" and url:
+                        creation_confirmed = True
+                if creation_confirmed:
                     logger.info("BanchoBot подтвердил создание MP-комнаты: #%s", url.group(1))
                 if sender.casefold() == "banchobot":
                     waiter = self._settings_waiters.pop(target.casefold(), None)

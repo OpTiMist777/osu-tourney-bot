@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.5.2] - 2026-09-20
+
+Player-facing UX and match-creation reliability hotfix.
+
+### Added
+
+- Added a dedicated match-created embed with participants, pool, format,
+  multiplayer-room link, and join status.
+- Added status-based colors to the live match embed for waiting, active,
+  completed, and cancelled matches.
+
+### Changed
+
+- Renamed the live pick/ban section to `Action history` and clarified
+  automatic actions in the Discord output.
+- Localized remaining mixed-language labels in the live match status.
+- Restricted Draft and Pending pool lists to ephemeral responses.
+
+### Fixed
+
+- Added an in-process creation lock and a second active-match check to prevent
+  the same osu! player from being placed into concurrent matches.
+- Closed an orphaned Bancho lobby when MongoDB match persistence fails.
+- Corrected Bancho room-creation logging so unrelated MP links are not marked
+  as confirmed room creation.
+
+### Testing
+
+- `venv\\Scripts\\python.exe -m unittest discover -s tests -q` — 21 tests passed.
+- Python bytecode compilation and `git diff --check` completed successfully.
+
 ## [0.1.5.1] - 2026-09-20
 
 Small multiplayer usability hotfix for the alpha test build.

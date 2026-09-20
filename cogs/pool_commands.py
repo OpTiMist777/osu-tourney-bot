@@ -771,10 +771,11 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
                 return
 
             view = PoolSubmitView(self, pool['pool_id'], pool['created_by']) if pool['status'] == 'draft' else None
+            private_view = pool['status'] in ('draft', 'pending')
             if view is None:
-                await interaction.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed, ephemeral=private_view)
             else:
-                await interaction.followup.send(embed=embed, view=view)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=private_view)
         except Exception:
             traceback.print_exc()
             await interaction.followup.send(
@@ -796,7 +797,8 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             description=format_category_requirements(mode.value),
             color=0x0099ff,
         )
-        await interaction.response.send_message(embed=embed)
+        # Keep private Draft/Pending entries out of public channels.
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="pool_help", description="Справка по командам пулов")
     async def pool_help_slash(self, interaction: discord.Interaction):
