@@ -200,6 +200,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
     ACTION_TIMER_SECONDS = 90
     READY_MESSAGES = {'all players are ready', 'all players ready'}
     MATCH_LOG_CHANNEL_ID = 1550058586846011473
+    SCORE_WATCH_CHANNEL_ID = 1451591717101899929
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot, self.irc = bot, BanchoIRC()
@@ -269,11 +270,11 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             logger.warning("Матч #%s: не удалось отправить событие в Discord-логи", match_id)
 
     async def _refresh_match_log_embed(self, match: dict) -> None:
-        """Keep one staff-channel embed synchronized with the public match output."""
+        """Keep one full live-match embed synchronized in the score-watch channel."""
         try:
-            channel = await self._get_discord_channel(self.MATCH_LOG_CHANNEL_ID)
+            channel = await self._get_discord_channel(self.SCORE_WATCH_CHANNEL_ID)
             if channel is None:
-                logger.warning("Матч #%s: канал логов Discord недоступен", match["match_id"])
+                logger.warning("Матч #%s: канал слежки за счётами Discord недоступен", match["match_id"])
                 return
 
             message_id = match.get("match_log_message_id")
@@ -293,7 +294,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             )
             await update_match(match["match_id"], {"match_log_message_id": message.id})
         except discord.DiscordException:
-            logger.warning("Матч #%s: не удалось обновить embed в Discord-логах", match["match_id"])
+            logger.warning("Матч #%s: не удалось обновить embed в канале слежки за счётами", match["match_id"])
 
     async def _send_match_pool(self, match: dict) -> None:
         """Post the exact stored pool to the match's Discord channel once."""
@@ -351,10 +352,14 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 f"**{match['roll_loser']}** банит первым."
             )
         if match['history']:
-            text += "\n\n**Выборы:** " + " · ".join(
-                f"{item['slot']} ({'TB' if item['kind'] == 'tiebreaker' else 'бан' if item['kind'] == 'ban' else 'пик'}: {item['player']})"
-                for item in match['history']
-            )
+            choices = []
+            for item in match['history']:
+                kind = 'TB' if item['kind'] == 'tiebreaker' else 'бан' if item['kind'] == 'ban' else 'пик'
+                slot = item.get('slot') or '—'
+                actor = item.get('player', 'automatic')
+                automatic = ' · automatic' if item.get('automatic') else ''
+                choices.append(f"`{slot}` — **{kind}**: {actor}{automatic}")
+            text += "\n\n**Выборы**\n" + "\n".join(choices)
         embed = discord.Embed(title=f"🎮 Матч #{match['match_id']}", description=text, color=0x5865F2)
         players = match['players']
         series = match.get('series_score', {})
@@ -671,10 +676,11 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         )
         await self.irc.send_channel(channel, 'Waiting for both players to join before the roll.')
         match = await get_match(match_id)
-        await interaction.followup.send(embed=self._embed(match))
-        message = await interaction.original_response()
-        await update_match(match_id, {'discord_message_id': message.id})
-        await self._refresh_match_log_embed(await get_match(match_id))
+        await interaction.followup.send(
+            f"✅ Матч #{match_id} создан в комнате `{match['bancho_match_id']}`. "
+            "Полный статус матча публикуется в канале слежки за счётами."
+        )
+        await self._refresh_match_log_embed(match)
         self._invite_tasks[match_id] = asyncio.create_task(
             self._send_invites_for_five_minutes(match_id, channel, [player_one_name, player_two_name])
         )
@@ -866,6 +872,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         )
         await self.irc.send_channel(channel, f'Both players joined. Roll result: {updated["roll_winner"]} picks first; {updated["roll_loser"]} bans first.')
         await self.irc.send_channel(channel, f'{updated["roll_loser"]}: ban a slot by writing its name in this lobby chat.')
+        await self.irc.send_channel(
+            channel,
+            f'Available slots: {", ".join(updated.get("available_slots", [])) or "none"}.',
+        )
         await self.irc.send_channel(channel, f'!mp timer {self.ACTION_TIMER_SECONDS}')
         self._schedule_action_timeout(updated['match_id'])
         await self._refresh_discord(updated['match_id'])
@@ -909,6 +919,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                     channel,
                     f'Connection restored. {action["player"]}: {action["kind"]} a slot.'
                 )
+                await self.irc.send_channel(
+                    channel,
+                    f'Available slots: {", ".join(match.get("available_slots", [])) or "none"}.',
+                )
                 await self.irc.send_channel(channel, f'!mp timer {self.ACTION_TIMER_SECONDS}')
                 self._schedule_action_timeout(match_id)
                 await self._refresh_discord(match_id)
@@ -941,14 +955,6 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         match = await get_match(match_id)
         if not match:
             return
-        if match.get('discord_message_id'):
-            try:
-                channel = await self._get_discord_channel(match['discord_channel_id'])
-                if channel:
-                    message = await channel.fetch_message(match['discord_message_id'])
-                    await message.edit(embed=self._embed(match))
-            except discord.DiscordException:
-                logger.warning("Матч #%s: не удалось обновить Discord-сообщение", match_id)
         await self._refresh_match_log_embed(match)
 
     async def _set_map_and_wait_ready(self, match: dict, slot: str, *, is_tiebreaker: bool = False) -> None:
@@ -1212,6 +1218,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         elif status == 'pickban':
             turn = updated['actions'][next_index]
             await self.irc.send_channel(match['bancho_channel'], f"{action['player']} {'skipped the ban' if slot is None else f'used {slot}'}. {turn['player']}: {turn['kind']} a slot.")
+            await self.irc.send_channel(
+                match['bancho_channel'],
+                f'Available slots: {", ".join(updated.get("available_slots", [])) or "none"}.',
+            )
             await self.irc.send_channel(match['bancho_channel'], f'!mp timer {self.ACTION_TIMER_SECONDS}')
             self._schedule_action_timeout(match['match_id'])
         await self._refresh_discord(match['match_id'])
@@ -1322,6 +1332,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             else:
                 turn = updated['actions'][next_index]
                 await self.irc.send_channel(channel, f'{slot} banned by {action["player"]}. {turn["player"]}: {turn["kind"]} a slot.')
+                await self.irc.send_channel(
+                    channel,
+                    f'Available slots: {", ".join(updated.get("available_slots", [])) or "none"}.',
+                )
                 await self.irc.send_channel(channel, f'!mp timer {self.ACTION_TIMER_SECONDS}')
                 self._schedule_action_timeout(match_id)
         await self._refresh_discord(match_id)
@@ -1453,7 +1467,17 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             await update_match(match['match_id'], {'status': 'pickban', 'series_score': series, 'played_maps': played, 'current_map_scores': {}})
             updated = await get_match(match['match_id'])
             turn = updated['actions'][updated['action_index']]
-            await self.irc.send_channel(match['bancho_channel'], f'Score: {first} {series[first]}-{series[second]} {second}. {turn["player"]}: {turn["kind"]} a slot.')
+            await self.irc.send_channel(
+                match['bancho_channel'],
+                f'Score: {first} {series[first]}-{series[second]} {second}. '
+                f'{turn["player"]}: {turn["kind"]} a slot.',
+            )
+            await self.irc.send_channel(
+                match['bancho_channel'],
+                f'Available slots: {", ".join(updated.get("available_slots", [])) or "none"}.',
+            )
+            await self.irc.send_channel(match['bancho_channel'], f'!mp timer {self.ACTION_TIMER_SECONDS}')
+            self._schedule_action_timeout(match['match_id'])
         await self._refresh_discord(match['match_id'])
 
     def _schedule_room_close(self, match_id: int, channel: str) -> None:

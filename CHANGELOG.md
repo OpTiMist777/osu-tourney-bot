@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.5.1] - 2026-09-20
+
+Small multiplayer usability hotfix for the alpha test build.
+
+### Changed
+
+- Moved the full live match embed from the match output channel to the
+  dedicated score-watch channel.
+- Displayed pick/ban history one action per line in the live match embed.
+- Added an explicit available-slot list after every pick/ban prompt.
+- Restarted the 90-second Bancho timer after a completed map, a ban, the first
+  lobby roll, and IRC recovery.
+- Kept the original match output channel limited to a short match-creation
+  confirmation instead of the continuously edited embed.
+
+### Testing
+
+- `venv\\Scripts\\python.exe -m unittest discover -s tests -v` — 21 tests passed.
+- Python bytecode compilation and `git diff --check` completed successfully.
+
 ## [0.1.5] - 2026-09-20
 
 Match-flow reliability and mode-specific FreeMod rules for the alpha test build.
