@@ -10,6 +10,10 @@ MANIA_4K_RULES = ModeRules(
     optional_categories=("sv",),
     category_order=("rc", "hb", "ln", "sv", "tb"),
     slot_mods={"rc": ("FreeMod",), "hb": ("FreeMod",), "ln": ("FreeMod",), "sv": ("FreeMod",), "tb": ("FreeMod",)},
+    freemod_allowed_mods=("NoFail", "Mirror", "Fade In", "Hidden", "Flashlight"),
+    freemod_slot_allowed_mods={},
+    freemod_slot_required_mods={},
+    freemod_score_multipliers={},
     allow_std_converts=True,
 )
 
@@ -23,6 +27,10 @@ MANIA_7K_RULES = ModeRules(
     optional_categories=("ex",),
     category_order=("rc", "hb", "ln", "ex", "tb"),
     slot_mods={"rc": ("FreeMod",), "hb": ("FreeMod",), "ln": ("FreeMod",), "ex": ("FreeMod",), "tb": ("FreeMod",)},
+    freemod_allowed_mods=("NoFail", "Mirror", "Fade In", "Hidden", "Flashlight"),
+    freemod_slot_allowed_mods={},
+    freemod_slot_required_mods={},
+    freemod_score_multipliers={},
     allow_std_converts=True,
 )
 

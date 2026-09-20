@@ -27,11 +27,13 @@ from rulesets import get_ruleset
 
 logger = logging.getLogger("osu_tourney.matches")
 LOGIN_CODE_PATTERN = re.compile(r"^OSU-[0-9A-F]{32}$")
+SLOT_INPUT_PATTERN = re.compile(r"^(?:[A-Z]{1,3}\d+|TB)$")
 
 
 class MultiplayerMod(str, Enum):
     """Tokens used to compose the enforced multiplayer mod combinations."""
     NO_FAIL = "nf"
+    EASY = "ez"
     HIDDEN = "hd"
     HARD_ROCK = "hr"
     DOUBLE_TIME = "dt"
@@ -40,16 +42,6 @@ class MultiplayerMod(str, Enum):
     FADE_IN = "fi"
     FLASHLIGHT = "fl"
 
-
-# These are optional personal mods in Mania FreeMod rooms. NoFail is mandatory
-# for every player, while the other listed mods may be used or omitted.
-MANIA_ALLOWED_PLAYER_MODS = frozenset({
-    MultiplayerMod.NO_FAIL.value,
-    MultiplayerMod.MIRROR.value,
-    MultiplayerMod.FADE_IN.value,
-    MultiplayerMod.HIDDEN.value,
-    MultiplayerMod.FLASHLIGHT.value,
-})
 
 def _nick(value: str) -> str:
     return value.strip().strip('[]').replace('_', ' ').casefold()
@@ -137,12 +129,72 @@ def _mod_tokens(value: str) -> set[str]:
     }.items():
         normalized = normalized.replace(source, target)
     aliases = {
-        'nofail': 'nf', 'hidden': 'hd',
+        'nofail': 'nf', 'easy': 'ez', 'hidden': 'hd',
         'hardrock': 'hr', 'doubletime': 'dt', 'freemod': 'freemod',
         'mirror': 'mr', 'fadein': 'fi', 'flashlight': 'fl',
     }
     return {aliases.get(part.strip(), part.strip())
             for part in re.split(r'[,|+ ]+', normalized) if part.strip()}
+
+
+def _freemod_allowed_tokens(mode: str, slot: str | None = None) -> set[str] | None:
+    """Return allowed personal FreeMod tokens for a mode and optional slot."""
+    ruleset = get_ruleset(mode)
+    category = ruleset.category_from_slot(slot) if slot else None
+    allowed_mods = ruleset.freemod_slot_allowed_mods.get(category, ruleset.freemod_allowed_mods)
+    return _mod_tokens(','.join(allowed_mods)) if allowed_mods is not None else None
+
+
+def _freemod_required_tokens(mode: str, slot: str | None = None) -> set[str]:
+    """Return personal FreeMod tokens required for every player in a slot."""
+    ruleset = get_ruleset(mode)
+    category = ruleset.category_from_slot(slot) if slot else None
+    required_mods = ruleset.freemod_slot_required_mods.get(category, ())
+    return _mod_tokens(','.join(required_mods))
+
+
+def _freemod_instruction(mode: str, slot: str | None = None) -> str | None:
+    """Describe restricted FreeMod choices before players confirm readiness."""
+    ruleset = get_ruleset(mode)
+    category = ruleset.category_from_slot(slot) if slot else None
+    allowed_mods = ruleset.freemod_slot_allowed_mods.get(category, ruleset.freemod_allowed_mods)
+    if allowed_mods is None:
+        return None
+    required_tokens = _freemod_required_tokens(mode, slot)
+    required_mods = [mod for mod in allowed_mods if _mod_tokens(mod) <= required_tokens]
+    optional_mods = [
+        mod for mod in allowed_mods
+        if _mod_tokens(mod) != {'nf'} and not _mod_tokens(mod) <= required_tokens
+    ]
+    mode_name = {"std": "STD", "ctb": "CTB"}.get(mode, ruleset.mode.title())
+    message = f'{mode_name} FreeMod: enable NoFail before Ready.'
+    if required_mods:
+        message += f' Required: {", ".join(required_mods)}.'
+    if optional_mods:
+        message += f' Optional mods: {", ".join(optional_mods)}.'
+    return message
+
+
+def _freemod_score_multiplier(mode: str, player_mods: set[str]) -> float:
+    """Return the configured manual FreeMod result multiplier for one player."""
+    multiplier = 1.0
+    for modifier, value in get_ruleset(mode).freemod_score_multipliers.items():
+        if _mod_tokens(modifier) <= player_mods:
+            multiplier *= value
+    return multiplier
+
+
+def _match_player_mods(match: dict, settings: dict) -> dict[str, set[str]]:
+    """Map settings' stable osu! IDs back to the persisted match player names."""
+    by_user_id = {
+        int(user_id): player
+        for player, user_id in zip(match.get('players', []), match.get('player_osu_ids', []))
+    }
+    return {
+        by_user_id[int(player['user_id'])]: _mod_tokens(','.join(player.get('mods', [])))
+        for player in settings.get('players', [])
+        if int(player.get('user_id', 0)) in by_user_id
+    }
 
 class OsuCommands(commands.Cog, name="osu! multiplayer"):
     ACTION_TIMER_SECONDS = 90
@@ -168,6 +220,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         self._close_tasks: dict[int, asyncio.Task] = {}
         self._invite_tasks: dict[int, asyncio.Task] = {}
         self._action_timeout_tasks: dict[int, asyncio.Task] = {}
+        self._ready_timeout_tasks: dict[int, asyncio.Task] = {}
         self._settings_tasks: dict[int, asyncio.Task] = {}
         self._action_locks: dict[int, asyncio.Lock] = {}
 
@@ -179,6 +232,8 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         for task in self._invite_tasks.values():
             task.cancel()
         for task in self._action_timeout_tasks.values():
+            task.cancel()
+        for task in self._ready_timeout_tasks.values():
             task.cancel()
         for task in self._settings_tasks.values():
             task.cancel()
@@ -742,6 +797,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             replace_name(name): score
             for name, score in match.get('current_map_scores', {}).items()
         }
+        updates['current_map_player_mods'] = {
+            replace_name(name): mods
+            for name, mods in match.get('current_map_player_mods', {}).items()
+        }
         updates['played_maps'] = deepcopy(match.get('played_maps', []))
         for played in updates['played_maps']:
             if 'winner' in played:
@@ -750,6 +809,16 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 played['scores'] = {
                     replace_name(name): score
                     for name, score in played['scores'].items()
+                }
+            if isinstance(played.get('raw_scores'), dict):
+                played['raw_scores'] = {
+                    replace_name(name): score
+                    for name, score in played['raw_scores'].items()
+                }
+            if isinstance(played.get('score_multipliers'), dict):
+                played['score_multipliers'] = {
+                    replace_name(name): multiplier
+                    for name, multiplier in played['score_multipliers'].items()
                 }
 
         if not await update_osu_account_username(osu_user_id, canonical):
@@ -897,31 +966,75 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         )
         await update_match(match['match_id'], {
             'status': 'waiting_ready', 'selected_slot': slot, 'selected_is_tiebreaker': is_tiebreaker,
-            'current_map_scores': {},
+            'current_map_scores': {}, 'current_map_player_mods': {},
         })
         await self.irc.send_channel(match['bancho_channel'], f"!mp map {choice['beatmap_id']} {mode_id}")
         await self.irc.send_channel(match['bancho_channel'], f"!mp mods {choice['mods']}")
+        instruction = _freemod_instruction(match['mode'], slot) if 'freemod' in _mod_tokens(choice['mods']) else None
+        if instruction:
+            await self.irc.send_channel(match['bancho_channel'], instruction)
         await self.irc.send_channel(match['bancho_channel'], 'Map is set. Waiting for: All players are ready.')
         await self.irc.send_channel(match['bancho_channel'], f'!mp timer {self.ACTION_TIMER_SECONDS}')
+        self._schedule_ready_timeout(match['match_id'], match['bancho_channel'])
 
-    async def _queue_settings_check(self, match_id: int, channel: str) -> bool:
+    def _cancel_ready_timeout(self, match_id: int) -> None:
+        task = self._ready_timeout_tasks.pop(match_id, None)
+        if task and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+
+    def _schedule_ready_timeout(self, match_id: int, channel: str) -> None:
+        self._cancel_ready_timeout(match_id)
+        self._ready_timeout_tasks[match_id] = asyncio.create_task(
+            self._ready_timeout(match_id, channel)
+        )
+
+    async def _ready_timeout(self, match_id: int, channel: str) -> None:
+        """Force-start a configured map when the readiness window expires."""
+        try:
+            await asyncio.sleep(self.ACTION_TIMER_SECONDS)
+            match = await get_match(match_id)
+            if not match or match.get('status') != 'waiting_ready':
+                return
+            logger.info("Матч #%s: таймер готовности истёк; проверяем lobby перед форс-стартом", match_id)
+            await self._post_match_log(
+                match_id, 'Ready timer expired; verifying lobby before forced start.', level='WARNING',
+            )
+            await self.irc.send_channel(
+                channel,
+                'Ready timer expired. Verifying map and mods before forced start.',
+            )
+            await self._queue_settings_check(match_id, channel, force_start=True)
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Матч #%s: ошибка таймера готовности", match_id)
+        finally:
+            if self._ready_timeout_tasks.get(match_id) is asyncio.current_task():
+                self._ready_timeout_tasks.pop(match_id, None)
+
+    async def _queue_settings_check(self, match_id: int, channel: str, *, force_start: bool = False) -> bool:
         """Queue the mandatory settings check for one fresh ready event."""
         match = await get_match(match_id)
         if not match or match.get('status') != 'waiting_ready':
             return False
+        self._cancel_ready_timeout(match_id)
         selected = match.get('selected_slot', 'the selected map')
-        logger.info("Матч #%s: все игроки готовы для %s; запрашиваем !mp settings", match_id, selected)
-        await self._post_match_log(match_id, f"Both players are ready for {selected}; requesting lobby settings.")
+        if force_start:
+            logger.info("Матч #%s: запрашиваем !mp settings для форс-старта %s", match_id, selected)
+            await self._post_match_log(match_id, f"Ready timer expired for {selected}; requesting lobby settings.")
+        else:
+            logger.info("Матч #%s: все игроки готовы для %s; запрашиваем !mp settings", match_id, selected)
+            await self._post_match_log(match_id, f"Both players are ready for {selected}; requesting lobby settings.")
         await update_match(match_id, {'status': 'checking_settings'})
         old = self._settings_tasks.pop(match_id, None)
         if old and not old.done():
             old.cancel()
         self._settings_tasks[match_id] = asyncio.create_task(
-            self._check_settings_and_start(match_id, channel)
+            self._check_settings_and_start(match_id, channel, force_start=force_start)
         )
         return True
 
-    async def _check_settings_and_start(self, match_id: int, channel: str) -> None:
+    async def _check_settings_and_start(self, match_id: int, channel: str, *, force_start: bool = False) -> None:
         """Validate BanchoBot's settings response before every game start."""
         try:
             await asyncio.sleep(0.2)  # let the ready event finish propagating
@@ -947,14 +1060,26 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             if 'freemod' in required:
                 # NoFail is a per-player mod in FreeMod rooms, not a global
                 # room mod reported by `Active mods`.
-                if active != {'freemod'}:
-                    errors.append(f"глобальные моды {settings.get('active_mods', 'None')} вместо FreeMod")
+                expected_global_mods = required - {'nf'}
+                if active != expected_global_mods:
+                    errors.append(
+                        f"глобальные моды {settings.get('active_mods', 'None')} вместо "
+                        f"{choice.get('mods', 'nf')}"
+                    )
                 for player in settings.get('players', []):
                     player_mods = _mod_tokens(','.join(player.get('mods', [])))
                     if 'nf' not in player_mods:
                         errors.append(f"у игрока {player.get('username', '?')} не включён NoFail")
-                    if get_ruleset(match['mode']).osu_ruleset == 'mania':
-                        disallowed = player_mods - MANIA_ALLOWED_PLAYER_MODS
+                    required_player_mods = _freemod_required_tokens(match['mode'], selected)
+                    missing_mods = required_player_mods - player_mods
+                    if missing_mods:
+                        errors.append(
+                            f"у игрока {player.get('username', '?')} не включены обязательные моды: "
+                            f"{', '.join(sorted(missing_mods))}"
+                        )
+                    allowed_mods = _freemod_allowed_tokens(match['mode'], selected)
+                    if allowed_mods is not None:
+                        disallowed = player_mods - allowed_mods
                         if disallowed:
                             errors.append(
                                 f"у игрока {player.get('username', '?')} недопустимые моды: "
@@ -969,7 +1094,11 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 actual_ids = {int(player['user_id']) for player in settings.get('players', [])}
                 if expected_ids and actual_ids != expected_ids:
                     errors.append('в лобби находятся не те участники матча')
-            if len(settings.get('players', [])) >= 2 and any(player.get('status', '').casefold() != 'ready' for player in settings.get('players', [])):
+            if (
+                not force_start
+                and len(settings.get('players', [])) >= 2
+                and any(player.get('status', '').casefold() != 'ready' for player in settings.get('players', []))
+            ):
                 errors.append('не все игроки имеют статус Ready')
             if errors:
                 logger.warning("Матч #%s: проверка !mp settings не пройдена: %s", match_id, '; '.join(errors))
@@ -980,9 +1109,16 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 await self.irc.send_channel(channel, 'Lobby check failed: ' + '; '.join(errors) + '. Map/mods will be reapplied.')
                 await self._set_map_and_wait_ready(await get_match(match_id), selected)
             else:
-                logger.info("Матч #%s: !mp settings подтверждены, запускаем карту %s", match_id, selected)
-                await self._post_match_log(match_id, f"Lobby validation passed for {selected}; starting the map.")
-                await update_match(match_id, {'status': 'game_running'})
+                start_kind = 'forced start' if force_start else 'start'
+                logger.info("Матч #%s: !mp settings подтверждены, %s карты %s", match_id, start_kind, selected)
+                await self._post_match_log(match_id, f"Lobby validation passed for {selected}; {start_kind}.")
+                await update_match(match_id, {
+                    'status': 'game_running',
+                    'current_map_player_mods': {
+                        player: sorted(mods)
+                        for player, mods in _match_player_mods(match, settings).items()
+                    },
+                })
                 await self.irc.send_channel(channel, '!mp aborttimer')
                 await self.irc.send_channel(channel, '!mp start 5')
             await self._refresh_discord(match_id)
@@ -1139,6 +1275,11 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 "Матч #%s: недопустимый слот от %s отклонён (доступно: %s)",
                 match['match_id'], sender, ', '.join(match['available_slots']),
             )
+            if SLOT_INPUT_PATTERN.fullmatch(slot):
+                await self.irc.send_channel(
+                    channel,
+                    f'{slot} is unavailable. Available: {", ".join(match["available_slots"])}.',
+                )
             return
         await self._handle_manual_action(match['match_id'], sender, channel, slot)
 
@@ -1190,16 +1331,44 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         match = await get_match(match['match_id'])
         scores = dict(match.get('current_map_scores', {}))
         first, second = match['players']
+        fallback_score_players: set[str] = set()
         # A finished map with one reported participant is a disconnect: policy
         # assigns the missing player an effective score of one.
         if first in scores and second not in scores:
             scores[second] = 1
+            fallback_score_players.add(second)
         elif second in scores and first not in scores:
             scores[first] = 1
+            fallback_score_players.add(first)
         if first not in scores or second not in scores:
             logger.warning("Матч #%s: завершение карты без обоих результатов: %s", match['match_id'], scores)
             await self.irc.send_channel(match['bancho_channel'], 'Could not read both scores; the current map needs referee review.')
             return
+        raw_scores = dict(scores)
+        player_mods = {
+            player: set(mods)
+            for player, mods in match.get('current_map_player_mods', {}).items()
+        }
+        selected_choice = match.get('map_choices', {}).get(match.get('selected_slot'), {})
+        is_freemod_map = 'freemod' in _mod_tokens(selected_choice.get('mods', ''))
+        score_multipliers = {
+            player: (
+                1.0
+                if player in fallback_score_players or not is_freemod_map
+                else _freemod_score_multiplier(match['mode'], player_mods.get(player, set()))
+            )
+            for player in (first, second)
+        }
+        scores = {
+            player: round(raw_scores[player] * score_multipliers[player])
+            for player in (first, second)
+        }
+        for player in (first, second):
+            if score_multipliers[player] != 1.0:
+                logger.info(
+                    "Матч #%s: скорректирован результат %s: %s × %s = %s",
+                    match['match_id'], player, raw_scores[player], score_multipliers[player], scores[player],
+                )
         logger.info(
             "Матч #%s: карта %s завершена, результат %s-%s: %s=%s, %s=%s",
             match['match_id'], match.get('selected_slot', '?'), first, second,
@@ -1239,6 +1408,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
         )
         played = [*match.get('played_maps', []), {
             'slot': match['selected_slot'], 'scores': scores, 'winner': winner,
+            'raw_scores': raw_scores, 'score_multipliers': score_multipliers,
             'is_tiebreaker': bool(match.get('selected_is_tiebreaker')),
         }]
         wins_needed = match['best_of'] // 2 + 1
@@ -1267,7 +1437,10 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 history = [*match['history'], {'kind': 'tiebreaker', 'player': 'automatic', 'slot': match['tiebreaker_slot']}]
                 await update_match(match['match_id'], {'series_score': series, 'played_maps': played, 'history': history})
                 updated = await get_match(match['match_id'])
-                await self.irc.send_channel(match['bancho_channel'], f"Series is tied {series[first]}-{series[second]}. {updated['tiebreaker_slot']} is the tiebreaker.")
+                await self.irc.send_channel(
+                    match['bancho_channel'],
+                    f"Score: {first} {series[first]}-{series[second]} {second}. Tiebreaker incoming.",
+                )
                 await self._set_map_and_wait_ready(updated, updated['tiebreaker_slot'], is_tiebreaker=True)
             else:
                 # This should only happen if no player reached the mathematical

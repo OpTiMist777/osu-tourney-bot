@@ -13,6 +13,16 @@ class ModeRules:
     optional_categories: Tuple[str, ...]
     category_order: Tuple[str, ...]
     slot_mods: Mapping[str, Tuple[str, ...]]
+    # ``None`` keeps FreeMod unrestricted. A tuple restricts personal mods
+    # while the match flow still enforces NoFail for every FreeMod player.
+    freemod_allowed_mods: Tuple[str, ...] | None
+    # Category-specific overrides for hybrid FreeMod slots such as CTB HR/DT.
+    freemod_slot_allowed_mods: Mapping[str, Tuple[str, ...]]
+    # Personal mods that every player must take in a category-specific
+    # FreeMod slot. These are not global Bancho room mods.
+    freemod_slot_required_mods: Mapping[str, Tuple[str, ...]]
+    # Manual result multipliers for FreeMod mods, keyed by their ruleset name.
+    freemod_score_multipliers: Mapping[str, float]
     allow_std_converts: bool
 
     @property

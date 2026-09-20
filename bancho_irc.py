@@ -104,6 +104,10 @@ class BanchoIRC:
         self._match_make_lock = asyncio.Lock()
         self._settings_waiters: dict[str, asyncio.Future[None]] = {}
         self._settings_buffers: dict[str, list[str]] = {}
+        # A settings reply is asynchronous. Waiting for its first recognised
+        # line is safer than assuming BanchoBot will answer within a fixed
+        # delay, especially when several lobby commands were just processed.
+        self._settings_first_line_waiters: dict[str, asyncio.Future[None]] = {}
         self.message_handler: MessageHandler | None = None
         self.private_message_handler: PrivateMessageHandler | None = None
         self.join_handler: JoinHandler | None = None
@@ -300,13 +304,36 @@ class BanchoIRC:
             logger.error("Нет ответа BanchoBot на !mp settings в %s", channel)
             raise RuntimeError("BanchoBot не ответил на !mp settings в созданной комнате") from error
 
-    async def get_match_settings(self, channel: str, wait_seconds: float = 2.5) -> dict:
-        """Request and collect the multiline BanchoBot ``!mp settings`` reply."""
+    async def get_match_settings(
+        self,
+        channel: str,
+        first_line_wait_seconds: float = 10,
+        settle_seconds: float = 0.25,
+    ) -> dict:
+        """Request and collect the multiline BanchoBot ``!mp settings`` reply.
+
+        BanchoBot may take longer than the former fixed 2.5-second wait to
+        begin replying. Wait for the first settings line, then leave a short
+        window for the rest of the response to arrive.
+        """
         key = channel.casefold()
         self._settings_buffers[key] = []
+        first_line_waiter = asyncio.get_running_loop().create_future()
+        self._settings_first_line_waiters[key] = first_line_waiter
         logger.info("Bancho IRC: запрашиваю !mp settings в %s", channel)
         await self.send_channel(channel, "!mp settings")
-        await asyncio.sleep(wait_seconds)
+        try:
+            await asyncio.wait_for(first_line_waiter, first_line_wait_seconds)
+            await asyncio.sleep(settle_seconds)
+        except TimeoutError:
+            logger.warning(
+                "Bancho IRC: !mp settings в %s не вернула первую строку за %s с",
+                channel,
+                first_line_wait_seconds,
+            )
+        finally:
+            if self._settings_first_line_waiters.get(key) is first_line_waiter:
+                self._settings_first_line_waiters.pop(key, None)
         lines = self._settings_buffers.pop(key, [])
         if not lines:
             logger.warning("Bancho IRC: !mp settings в %s не вернула ни одной строки", channel)
@@ -405,9 +432,18 @@ class BanchoIRC:
                     if waiter and not waiter.done():
                         waiter.set_result(None)
                         logger.info("BanchoBot ответил на проверку !mp settings в %s", target)
-                    buffer = self._settings_buffers.get(target.casefold())
+                    settings_key = target.casefold()
+                    buffer = self._settings_buffers.get(settings_key)
                     if buffer is not None:
                         buffer.append(text)
+                        first_line_waiter = self._settings_first_line_waiters.get(settings_key)
+                        if (
+                            first_line_waiter
+                            and not first_line_waiter.done()
+                            and text.startswith(("Room name:", "Beatmap:", "Team mode:", "Active mods:", "Players:", "Slot "))
+                        ):
+                            first_line_waiter.set_result(None)
+                            logger.info("Bancho IRC: получена первая строка !mp settings в %s", target)
                 if target.startswith("#") and self.message_handler: await self.message_handler(sender, target, text)
                 elif (
                     target.casefold() == self.username.replace(" ", "_").casefold()

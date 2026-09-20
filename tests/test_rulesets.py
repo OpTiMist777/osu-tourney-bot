@@ -22,6 +22,10 @@ class TestRulesets(unittest.TestCase):
             {("FreeMod",)},
         )
         self.assertEqual(get_ruleset("mania7k").mods_for_slot("EX1"), ("FreeMod",))
+        self.assertEqual(
+            get_ruleset("taiko").freemod_allowed_mods,
+            ("NoFail", "Hidden", "Hard Rock"),
+        )
 
     def test_parse_spaced_category_maps(self) -> None:
         maps, error = parse_spaced_category_maps("nm:123 456 hd:789 tb:999", "std")

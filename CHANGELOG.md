@@ -5,6 +5,52 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.5] - 2026-09-20
+
+Match-flow reliability and mode-specific FreeMod rules for the alpha test build.
+
+### Added
+
+- Added a ready-window timeout: after 90 seconds, the bot validates the lobby
+  and force-starts only when the selected map, mode, participants, and mods
+  are valid.
+- Added ruleset-level declarations for allowed and required personal FreeMod
+  mods, including hybrid CTB categories.
+- Added manual STD Easy result adjustment (`×1.75`) while preserving the raw
+  score and applied multiplier in match history.
+- Added regression tests for delayed `!mp settings` replies, ready-timeout
+  flow, FreeMod validation, CTB hybrid slots, and STD Easy scoring.
+
+### Changed
+
+- `!mp settings` now waits for BanchoBot's first response line instead of
+  relying on a fixed delay, then collects the remaining snapshot.
+- FreeMod rules are enforced per mode:
+  - STD: NoFail required; Easy, Hidden, Hard Rock, and Flashlight allowed.
+  - Taiko: NoFail required; Hidden and Hard Rock allowed.
+  - CTB FM/TB: NoFail required; Hidden and Hard Rock allowed.
+  - CTB HR: FreeMod room; each player must take NoFail and Hard Rock, with
+    optional Hidden.
+  - CTB DT: Double Time is global; each player must take NoFail, with optional
+    Hidden.
+  - Mania: NoFail required; Mirror, Fade In, Hidden, and Flashlight allowed.
+- A valid-looking unavailable slot now receives a concise in-lobby response
+  listing the currently available slots.
+
+### Fixed
+
+- Fixed valid lobby settings occasionally being read as an empty reply when
+  BanchoBot responded later than the previous fixed wait period.
+- Fixed games stalling after the ready timer elapsed by validating and starting
+  a correct lobby instead of leaving it idle.
+- Fixed FreeMod validation so hybrid CTB HR/DT rules are checked from players'
+  actual selected mods rather than assuming every required mod is global.
+
+### Testing
+
+- `venv\\Scripts\\python.exe -m unittest discover -s tests -v` — 21 tests passed.
+- Python bytecode compilation and `git diff --check` completed successfully.
+
 ## [0.1.4] - 2026-09-17
 
 Mania FreeMod rules and lobby-mod validation update.

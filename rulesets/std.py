@@ -7,5 +7,9 @@ STD_RULES = ModeRules(
     optional_categories=("fm",),
     category_order=("nm", "hd", "hr", "dt", "fm", "tb"),
     slot_mods={"nm": (), "hd": ("HD",), "hr": ("HR",), "dt": ("DT",), "fm": ("FreeMod",), "tb": ("FreeMod",)},
+    freemod_allowed_mods=("NoFail", "Easy", "Hidden", "Hard Rock", "Flashlight"),
+    freemod_slot_allowed_mods={},
+    freemod_slot_required_mods={},
+    freemod_score_multipliers={"Easy": 1.75},
     allow_std_converts=False,
 )

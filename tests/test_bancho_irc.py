@@ -1,6 +1,8 @@
+import asyncio
 import unittest
+from unittest.mock import AsyncMock
 
-from bancho_irc import parse_match_settings
+from bancho_irc import BanchoIRC, parse_match_settings
 
 
 class TestBanchoSettings(unittest.TestCase):
@@ -68,6 +70,31 @@ class TestBanchoSettings(unittest.TestCase):
             settings["players"][1]["mods"],
             ["no fail", "fade in", "hidden", "flashlight"],
         )
+
+
+class TestBanchoSettingsRequest(unittest.IsolatedAsyncioTestCase):
+    async def test_waits_for_first_settings_line_before_collecting_response(self) -> None:
+        client = BanchoIRC()
+        client.send_channel = AsyncMock()
+        channel = "#mp_7"
+        task = asyncio.create_task(
+            client.get_match_settings(channel, first_line_wait_seconds=1, settle_seconds=0)
+        )
+        await asyncio.sleep(0)
+
+        key = channel.casefold()
+        client._settings_buffers[key].extend([
+            "Room name: Test room",
+            "Beatmap: https://osu.ppy.sh/b/123 Test map",
+            "Players: 2",
+        ])
+        client._settings_first_line_waiters[key].set_result(None)
+
+        settings = await task
+
+        client.send_channel.assert_awaited_once_with(channel, "!mp settings")
+        self.assertEqual(settings["beatmap_id"], 123)
+        self.assertEqual(settings["player_count"], 2)
 
 
 if __name__ == "__main__":

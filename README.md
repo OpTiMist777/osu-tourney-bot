@@ -28,6 +28,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the English release notes.
 - `!mp settings` verification after every `All players are ready` message and
   before starting each map, including map, players, readiness, and NoFail checks
   for FreeMod rooms.
+- A 90-second ready window that safely force-starts only after the same lobby
+  validation succeeds.
 - Series scores and results for completed maps.
 
 The current match system does not calculate ratings. Glicko-2 and ladder
@@ -161,6 +163,20 @@ BANCHO_IRC_PASSWORD=your_irc_password
 
 Gameplay messages are sent only to the corresponding Bancho MP chat. Discord
 receives match status updates and results.
+
+### FreeMod rules
+
+NoFail is required for every player in every FreeMod room. Additional personal
+mods are validated by ruleset:
+
+- **STD:** Easy, Hidden, Hard Rock, and Flashlight. Easy scores receive the
+  ladder adjustment of `×1.75`; the game already applies its own score effects
+  for Hidden and Hard Rock.
+- **Taiko:** Hidden and Hard Rock.
+- **CTB FM/TB:** Hidden and Hard Rock. CTB HR is a FreeMod room where each
+  player must take Hard Rock and may add Hidden; CTB DT uses global Double Time
+  with FreeMod, where players may add Hidden.
+- **Mania 4K/7K:** Mirror, Fade In, Hidden, and Flashlight.
 
 ## Linking an osu! account
 

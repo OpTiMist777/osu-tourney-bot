@@ -76,6 +76,19 @@ verifies the selected beatmap, mode, required mods, and participants. On a
 mismatch it re-applies the expected lobby configuration and does not start the
 map until verification passes.
 
+## FreeMod rules
+
+NoFail is mandatory for every player in every FreeMod room.
+
+- **STD:** optional Easy, Hidden, Hard Rock, and Flashlight. Easy receives the
+  ladder-only `×1.75` result adjustment; Hidden and Hard Rock are already
+  reflected in the game's score.
+- **Taiko:** optional Hidden and Hard Rock.
+- **CTB FM/TB:** optional Hidden and Hard Rock. CTB HR is a FreeMod room where
+  each player must take Hard Rock and may add Hidden. CTB DT uses global Double
+  Time with FreeMod; players may optionally add Hidden.
+- **Mania 4K/7K:** optional Mirror, Fade In, Hidden, and Flashlight.
+
 ## Disconnect policy
 
 If a completed map has results for the other participant but no result for a

@@ -6,6 +6,13 @@ CTB_RULES = ModeRules(
     minimums={"nm": 3, "hd": 2, "hr": 2, "dt": 3, "tb": 1},
     optional_categories=("fm",),
     category_order=("nm", "hd", "hr", "dt", "fm", "tb"),
-    slot_mods={"nm": (), "hd": ("HD",), "hr": ("HR",), "dt": ("DT",), "fm": ("FreeMod",), "tb": ("FreeMod",)},
+    slot_mods={"nm": (), "hd": ("HD",), "hr": ("FreeMod",), "dt": ("DT", "FreeMod"), "fm": ("FreeMod",), "tb": ("FreeMod",)},
+    freemod_allowed_mods=("NoFail", "Hidden", "Hard Rock"),
+    freemod_slot_allowed_mods={
+        "hr": ("NoFail", "Hidden", "Hard Rock"),
+        "dt": ("NoFail", "Hidden"),
+    },
+    freemod_slot_required_mods={"hr": ("Hard Rock",)},
+    freemod_score_multipliers={},
     allow_std_converts=True,
 )
