@@ -21,8 +21,10 @@ class ModeRules:
     # Personal mods that every player must take in a category-specific
     # FreeMod slot. These are not global Bancho room mods.
     freemod_slot_required_mods: Mapping[str, Tuple[str, ...]]
-    # Manual result multipliers for FreeMod mods, keyed by their ruleset name.
-    freemod_score_multipliers: Mapping[str, float]
+    # Manual result multipliers for player mods on FreeMod categories.
+    # The outer key is the pool category (for example ``fm`` or ``tb``),
+    # the inner key is the personal mod name.
+    freemod_score_multipliers: Mapping[str, Mapping[str, float]]
     allow_std_converts: bool
 
     @property
@@ -35,3 +37,18 @@ class ModeRules:
 
     def mods_for_slot(self, slot: str) -> Tuple[str, ...]:
         return self.slot_mods.get(self.category_from_slot(slot), ())
+
+    def score_multipliers_for_slot(self, slot: str) -> Mapping[str, float]:
+        """Return manual score multipliers allowed for this slot.
+
+        Multipliers are deliberately unavailable for fixed-mod categories.
+        A wildcard entry can be used by a ruleset when the same multiplier
+        applies to every FreeMod category.
+        """
+        category = self.category_from_slot(slot)
+        if "freemod" not in {mod.casefold() for mod in self.mods_for_slot(slot)}:
+            return {}
+        return self.freemod_score_multipliers.get(
+            category,
+            self.freemod_score_multipliers.get("*", {}),
+        )

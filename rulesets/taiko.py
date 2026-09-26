@@ -10,6 +10,12 @@ TAIKO_RULES = ModeRules(
     freemod_allowed_mods=("NoFail", "Hidden", "Hard Rock"),
     freemod_slot_allowed_mods={},
     freemod_slot_required_mods={},
-    freemod_score_multipliers={},
+    freemod_score_multipliers={
+        "*": {
+            "NoMod": 1.0,
+            "Hidden": 1.0,
+            "Hard Rock": 1.0,
+        },
+    },
     allow_std_converts=True,
 )

@@ -10,6 +10,23 @@ STD_RULES = ModeRules(
     freemod_allowed_mods=("NoFail", "Easy", "Hidden", "Hard Rock", "Flashlight"),
     freemod_slot_allowed_mods={},
     freemod_slot_required_mods={},
-    freemod_score_multipliers={"Easy": 1.75},
+    freemod_score_multipliers={
+        # All allowed STD FreeMod mods are explicit here. Easy is the only
+        # manual ladder adjustment; osu! already applies HD/HR/FL effects.
+        "fm": {
+            "NoMod": 1.0,
+            "Easy": 1.75,
+            "Hidden": 1.0,
+            "Hard Rock": 1.0,
+            "Flashlight": 1.0,
+        },
+        "tb": {
+            "NoMod": 1.0,
+            "Easy": 1.75,
+            "Hidden": 1.0,
+            "Hard Rock": 1.0,
+            "Flashlight": 1.0,
+        },
+    },
     allow_std_converts=False,
 )

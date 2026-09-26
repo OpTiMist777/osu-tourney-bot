@@ -48,16 +48,16 @@ class TestRulesets(unittest.TestCase):
         ]
         valid, message = validate_pool_maps(maps, "std")
         self.assertTrue(valid)
-        self.assertIn("соответствует", message)
+        self.assertIn("meets the minimum requirements", message)
 
         invalid, message = validate_pool_maps(maps + [("NM1", 12)], "std")
         self.assertFalse(invalid)
-        self.assertIn("дублирующиеся слоты", message)
+        self.assertIn("Duplicate slots", message)
 
     def test_formatters(self) -> None:
         requirements = format_category_requirements("std")
-        self.assertIn("Обязательные категории", requirements)
-        self.assertIn("Опциональные категории", requirements)
+        self.assertIn("Required categories", requirements)
+        self.assertIn("Optional categories", requirements)
 
         formatted = format_maps_by_category(
             [

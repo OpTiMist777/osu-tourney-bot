@@ -24,12 +24,12 @@ if not app_logger.handlers:
 app_logger.setLevel(logging.INFO)
 app_logger.propagate = False
 
-# Настройка intents
+# Configure intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-# Создание бота
+# Create the bot
 bot = commands.Bot(
     command_prefix="!",
     intents=intents,
@@ -51,24 +51,24 @@ async def keep_osu_token_fresh() -> None:
             # next safe refresh point instead of refreshing on every loop.
             await asyncio.sleep(max(60, osu_manager.seconds_until_refresh()))
         except Exception as error:
-            print(f"⚠️ Не удалось обновить токен osu! API: {error}")
+            print(f"⚠️ Could not refresh the osu! API token: {error}")
             await asyncio.sleep(300)
 
 @bot.event
 async def on_ready():
-    """Обработчик готовности бота"""
-    print(f"✅ Бот запущен как {bot.user}")
+    """Handle bot readiness."""
+    print(f"✅ Bot is ready as {bot.user}")
     guild_count = len(bot.guilds)
-    guild_word = "серверу" if guild_count == 1 else "серверам"
-    print(f"📡 Подключено к {guild_count} {guild_word}")
+    guild_word = "server" if guild_count == 1 else "servers"
+    print(f"📡 Connected to {guild_count} {guild_word}")
     await bot.change_presence(
         activity=discord.Game(name="osu! ladders | /pool_help")
     )
-    # Инициализация БД
+    # Initialize the database
     await init_db()
     global moderation_views_restored
     if not moderation_views_restored:
-        pool_cog = bot.get_cog("Команды пулов")
+        pool_cog = bot.get_cog("Pool Commands")
         if pool_cog is not None:
             await pool_cog.restore_moderation_views()
             moderation_views_restored = True
@@ -81,15 +81,15 @@ async def on_ready():
     global osu_token_refresh_task
     if osu_token_refresh_task is None or osu_token_refresh_task.done():
         osu_token_refresh_task = asyncio.create_task(keep_osu_token_fresh())
-        print("🔑 Запущено фоновое обновление токена osu! API")
+        print("🔑 Started background osu! API token refresh")
     global commands_synced
     if not commands_synced:
         await bot.tree.sync()
         commands_synced = True
-        print("✅ Slash-команды синхронизированы")
+    print("✅ Slash commands synchronized")
 
 async def load_cogs():
-    """Загрузка всех когов из папки cogs"""
+    """Load all cogs from the cogs directory."""
     cog_files = [
         "pool_commands",
         "osu_commands"
@@ -98,15 +98,15 @@ async def load_cogs():
     for cog in cog_files:
         try:
             await bot.load_extension(f"cogs.{cog}")
-            print(f"✅ Загружен ког: {cog}")
+            print(f"✅ Loaded cog: {cog}")
         except Exception as e:
-            print(f"❌ Ошибка загрузки кога {cog}: {e}")
+            print(f"❌ Failed to load cog {cog}: {e}")
 
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if not token:
-        raise ValueError("❌ Токен не найден! Проверьте файл .env")
+        raise ValueError("❌ Token not found. Check your .env file.")
     
-    print("🚀 Запуск бота...")
+    print("🚀 Starting bot...")
     asyncio.run(load_cogs())
     bot.run(token, log_handler=None)

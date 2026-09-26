@@ -90,7 +90,7 @@ class TestReadyTimeout(unittest.IsolatedAsyncioTestCase):
 
         self.cog._set_map_and_wait_ready.assert_awaited_once_with(match, "FM1")
         self.cog.irc.send_channel.assert_awaited_once()
-        self.assertIn("недопустимые моды: dt", self.cog.irc.send_channel.await_args.args[1])
+        self.assertIn("disallowed mods: dt", self.cog.irc.send_channel.await_args.args[1])
 
     async def test_std_easy_score_is_adjusted_by_one_point_seven_five(self) -> None:
         match = {

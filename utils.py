@@ -28,23 +28,23 @@ def parse_spaced_category_maps(category_maps_text: str, mode: str) -> Tuple[List
             category = raw_category.lower().strip()
             if category not in valid_categories:
                 choices = ', '.join(f'`{item.upper()}`' for item in get_valid_categories(norm_mode))
-                errors.append(f"❌ Недопустимая категория `{raw_category}` для {norm_mode.upper()}. Допустимые: {choices}")
+                errors.append(f"❌ Invalid category `{raw_category}` for {norm_mode.upper()}. Allowed: {choices}")
                 category = None
                 continue
             token = first_id
 
         if category is None:
-            errors.append(f"❌ ID `{token}` указан до категории. Используйте формат `NM:123 321 HD:456`.")
+            errors.append(f"❌ ID `{token}` appears before a category. Use `NM:123 321 HD:456` format.")
             continue
         if not token:
-            errors.append(f"❌ После `{category.upper()}:` должен быть ID карты.")
+            errors.append(f"❌ `{category.upper()}:` must be followed by a beatmap ID.")
             continue
         try:
             beatmap_id = int(token)
             if beatmap_id <= 0:
                 raise ValueError
         except ValueError:
-            errors.append(f"❌ Неверный ID карты `{token}`.")
+            errors.append(f"❌ Invalid beatmap ID `{token}`.")
             continue
         category_ids.setdefault(category, []).append(beatmap_id)
 
@@ -55,7 +55,7 @@ def parse_spaced_category_maps(category_maps_text: str, mode: str) -> Tuple[List
     if errors:
         return [], '\n'.join(errors)
     if not maps:
-        return [], "❌ Не найдено ни одной карты. Используйте формат `NM:123 321 HD:456`."
+        return [], "❌ No maps found. Use `NM:123 321 HD:456` format."
     return maps, ""
 
 def validate_pool_maps(maps: List[Tuple[str, int]], mode: str) -> Tuple[bool, str]:
@@ -72,98 +72,98 @@ def validate_pool_maps(maps: List[Tuple[str, int]], mode: str) -> Tuple[bool, st
         actual = category_counts.get(cat, 0)
         if actual < min_count:
             cat_name = CATEGORY_FULL_NAMES.get(cat, cat.upper())
-            missing.append(f"• **{cat_name}**: требуется минимум {min_count}, указано {actual}")
+            missing.append(f"• **{cat_name}**: minimum {min_count} required, {actual} provided")
     
     if missing:
         return False, (
-            "❌ **Не выполнены минимальные требования:**\n" +
+            "❌ **Minimum requirements are not met:**\n" +
             "\n".join(missing) +
-            f"\n\n💡 Совет: Добавьте недостающие карты. "
-            f"Пример для STD: `nm:123,456,789,012 hd:345,678 hr:901,234 dt:567,890 tb:111`"
+            f"\n\n💡 Tip: Add the missing maps. "
+            f"STD example: `nm:123,456,789,012 hd:345,678 hr:901,234 dt:567,890 tb:111`"
         )
     
     slots = [slot for slot, _ in maps]
     if len(slots) != len(set(slots)):
         duplicates = set([s for s in slots if slots.count(s) > 1])
-        return False, f"❌ Обнаружены дублирующиеся слоты: {', '.join(duplicates)}"
+        return False, f"❌ Duplicate slots found: {', '.join(duplicates)}"
     
-    return True, "✅ Пул соответствует минимальным требованиям"
+    return True, "✅ Pool meets the minimum requirements"
 
 def format_category_requirements(mode: str) -> str:
     norm_mode = normalize_mode(mode)
     min_req = get_minimum_slots(norm_mode)
     optional = get_ruleset(norm_mode).optional_categories
     
-    lines = ["**Обязательные категории:**"]
+    lines = ["**Required categories:**"]
     for cat in get_ruleset(norm_mode).category_order:
         if cat not in min_req:
             continue
         min_count = min_req[cat]
         name = CATEGORY_FULL_NAMES.get(cat, cat.upper())
-        lines.append(f"• `{cat.upper()}` — {name} (минимум {min_count} карт)")
+        lines.append(f"• `{cat.upper()}` — {name} (minimum {min_count} maps)")
     
     if optional:
-        lines.append("\n**Опциональные категории:**")
+        lines.append("\n**Optional categories:**")
         for cat in get_ruleset(norm_mode).category_order:
             if cat not in optional:
                 continue
             name = CATEGORY_FULL_NAMES.get(cat, cat.upper())
-            lines.append(f"• `{cat.upper()}` — {name} (0+ карт)")
+            lines.append(f"• `{cat.upper()}` — {name} (0+ maps)")
     
-    lines.append("\n💡 Можно добавлять **больше карт**, чем минимальный набор!")
+    lines.append("\n💡 You can add **more maps** than the minimum set!")
     return "\n".join(lines)
 
 
 def format_maps_by_category(maps: List[Dict], mode: str) -> str:
     """
-    Группирует карты по категориям в строго правильном порядке для режима
+    Group maps by category in the configured mode order.
     """
     if not maps:
-        return "📭 Нет карт"
+        return "📭 No maps"
     
-    # Правильный порядок категорий для каждого режима
+    # Configured category order for each mode
     ruleset = get_ruleset(mode)
     order = ruleset.category_order
     
-    # Группируем карты по категориям
+    # Group maps by category
     categories: Dict[str, List[Tuple[str, int]]] = {}
     for map_dict in maps:
         slot = map_dict['slot']
         bm_id = map_dict['beatmap_id']
         
-        # Извлекаем категорию из слота (nm1 → nm, tb → tb)
+        # Extract the category from the slot (nm1 → nm, tb → tb)
         cat = ruleset.category_from_slot(slot)
         
-        # СОХРАНЯЕМ КАТЕГОРИЮ В НЕИЗМЕНЕННОМ ВИДЕ
+        # Preserve the category exactly as stored in the pool
         categories.setdefault(cat, []).append((slot, bm_id))
     
-    # СОЗДАЕМ СПИСОК КАТЕГОРИЙ В ПРАВИЛЬНОМ ПОРЯДКЕ
+    # Build categories in the configured order
     sorted_categories = []
     
-    # Сначала добавляем категории из заданного порядка
+    # Add configured categories first
     for cat in order:
         if cat in categories:
             sorted_categories.append(cat)
     
-    # Затем добавляем остальные категории (для непредвиденных случаев)
+    # Then append unexpected categories
     for cat in categories:
         if cat not in sorted_categories:
             sorted_categories.append(cat)
     
-    # Формируем строки с картами
+    # Build map lines
     lines = []
     for cat in sorted_categories:
-        # Используем оригинальное название категории из пула
+        # Use the original category name from the pool
         name = CATEGORY_FULL_NAMES.get(cat, cat.upper())
         cat_maps = categories[cat]
         
-        # Сортируем карты внутри категории по номеру (nm1, nm2, nm3)
+        # Sort maps inside a category by slot number
         cat_maps_sorted = sorted(
             cat_maps, 
             key=lambda x: (x[0][0].lower(), int(''.join(filter(str.isdigit, x[0])) if x[0][1:].isdigit() else 0))
         )
         
-        # Формируем список карт
+        # Build the formatted map list
         links = [f"[{slot}](https://osu.ppy.sh/b/{bm_id})" for slot, bm_id in cat_maps_sorted]
         lines.append(f"**{name}** ({len(cat_maps)}): {', '.join(links)}")
     

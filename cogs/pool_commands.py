@@ -39,7 +39,7 @@ class PoolSubmitView(discord.ui.View):
     async def submit(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author_id:
             await interaction.response.send_message(
-                "❌ Отправить пул на модерацию может только его автор.", ephemeral=True
+                "❌ Only the pool author can submit it for moderation.", ephemeral=True
             )
             return
 
@@ -60,10 +60,10 @@ class ModerationConfirmView(discord.ui.View):
         self.cog, self.pool_id, self.action = cog, pool_id, action
         self.moderation_message, self.reason = moderation_message, reason
 
-    @discord.ui.button(label="Подтвердить", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not self.cog.is_moderator(interaction):
-            await interaction.response.send_message("❌ Кнопки модерации доступны только администраторам.", ephemeral=True)
+            await interaction.response.send_message("❌ Moderation buttons are available to administrators only.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         if self.action == "approve":
@@ -76,13 +76,13 @@ class ModerationConfirmView(discord.ui.View):
             await self.cog.finish_moderation_message(self.moderation_message, self.pool_id)
         await interaction.followup.send(message, ephemeral=True)
 
-    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, _: discord.ui.Button):
-        await interaction.response.edit_message(content="Действие отменено.", view=None)
+        await interaction.response.edit_message(content="Action cancelled.", view=None)
 
 
-class RejectReasonModal(discord.ui.Modal, title="Причина отклонения"):
-    reason = discord.ui.TextInput(label="Причина", style=discord.TextStyle.paragraph, max_length=1000)
+class RejectReasonModal(discord.ui.Modal, title="Rejection reason"):
+    reason = discord.ui.TextInput(label="Reason", style=discord.TextStyle.paragraph, max_length=1000)
 
     def __init__(self, cog: "PoolCommands", pool_id: int, moderation_message: discord.Message):
         super().__init__()
@@ -92,7 +92,7 @@ class RejectReasonModal(discord.ui.Modal, title="Причина отклонен
         confirm = ModerationConfirmView(
             self.cog, self.pool_id, "reject", self.moderation_message, str(self.reason)
         )
-        await interaction.response.send_message("Подтвердить отклонение пула?", view=confirm, ephemeral=True)
+        await interaction.response.send_message("Confirm rejecting this pool?", view=confirm, ephemeral=True)
 
 
 class ModerationActionsView(discord.ui.View):
@@ -121,12 +121,12 @@ class ModerationActionsView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self.cog.is_moderator(interaction):
             return True
-        await interaction.response.send_message("❌ Кнопки модерации доступны только администраторам.", ephemeral=True)
+        await interaction.response.send_message("❌ Moderation buttons are available to administrators only.", ephemeral=True)
         return False
 
     async def rank(self, interaction: discord.Interaction):
         await interaction.response.send_message(
-            "Подтвердить присвоение статуса Ranked?",
+            "Confirm assigning the Ranked status?",
             view=ModerationConfirmView(self.cog, self.pool_id, "approve", interaction.message),
             ephemeral=True,
         )
@@ -145,30 +145,30 @@ class DraftDeleteView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.author_id:
             return True
-        await interaction.response.send_message("❌ Удалить черновик может только его автор.", ephemeral=True)
+        await interaction.response.send_message("❌ Only the pool author can delete a draft.", ephemeral=True)
         return False
 
-    @discord.ui.button(label="Удалить пул", style=discord.ButtonStyle.danger, emoji="🗑️")
+    @discord.ui.button(label="Delete pool", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def delete(self, interaction: discord.Interaction, _: discord.ui.Button):
         pool = await get_pool(self.pool_id)
         if not pool:
-            await interaction.response.edit_message(content="❌ Пул уже не найден.", view=None)
+            await interaction.response.edit_message(content="❌ Pool not found.", view=None)
             return
         if pool['created_by'] != interaction.user.id or pool['status'] != 'draft':
-            await interaction.response.edit_message(content="❌ Можно удалить только собственный пул в Draft.", view=None)
+            await interaction.response.edit_message(content="❌ You can only delete your own Draft pool.", view=None)
             return
         success, error = await delete_pool(self.pool_id)
         if not success:
-            await interaction.response.edit_message(content=f"❌ Не удалось удалить пул: {error}", view=None)
+            await interaction.response.edit_message(content=f"❌ Failed to delete the pool: {error}", view=None)
             return
-        await interaction.response.edit_message(content=f"🗑️ Черновик **{pool['name']}** удалён.", view=None)
+        await interaction.response.edit_message(content=f"🗑️ Draft **{pool['name']}** deleted.", view=None)
 
-    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, _: discord.ui.Button):
-        await interaction.response.edit_message(content="Удаление отменено.", view=None)
+        await interaction.response.edit_message(content="Deletion cancelled.", view=None)
 
-class PoolCommands(commands.Cog, name="Команды пулов"):
-    """Управление турнирными пулами карт"""
+class PoolCommands(commands.Cog, name="Pool Commands"):
+    """Manage osu! tournament map pools."""
 
     # Keep a conservative gap between map parses. A parse can make both a
     # beatmap request and a difficulty-attributes request to osu! API.
@@ -187,7 +187,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
                 message_id=pool['moderation_message_id'],
             )
             restored += 1
-        print(f"✅ Восстановлены кнопки модерации: {restored}")
+        print(f"✅ Restored moderation buttons: {restored}")
 
     async def _get_moderation_channel(self) -> discord.abc.Messageable | None:
         channel = self.bot.get_channel(self.MODERATION_CHANNEL_ID)
@@ -202,19 +202,19 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         """Create a fresh moderator post and replace the stored message reference."""
         channel = await self._get_moderation_channel()
         if channel is None:
-            return False, "чат модераторов недоступен"
+            return False, "moderation channel is unavailable"
         embed, _ = await self._pool_view_embed(pool['pool_id'])
         if embed is None:
-            return False, "не удалось собрать данные пула"
-        embed.title = f"📥 На модерацию: {pool['name']}"
-        embed.add_field(name="Автор", value=f"<@{pool['created_by']}>", inline=True)
+            return False, "could not build the pool data"
+        embed.title = f"📥 Pending moderation: {pool['name']}"
+        embed.add_field(name="Author", value=f"<@{pool['created_by']}>", inline=True)
         try:
             message = await channel.send(embed=embed, view=ModerationActionsView(self, pool['pool_id']))
         except discord.DiscordException as error:
             return False, str(error)
         if not await set_moderation_message(pool['pool_id'], channel.id, message.id):
             await message.delete()
-            return False, "не удалось сохранить ссылку на сообщение"
+            return False, "could not save the moderation message link"
         return True, ""
 
     @staticmethod
@@ -224,30 +224,30 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
     async def moderate_pool(self, pool_id: int, moderator: discord.abc.User, status: str, reason: str | None = None) -> tuple[bool, str]:
         pool = await get_pool(pool_id)
         if not pool:
-            return False, "❌ Пул не найден."
+            return False, "❌ Pool not found."
         if pool['status'] != 'pending':
-            return False, f"❌ Пул уже в статусе `{pool['status']}`."
+            return False, f"❌ Pool already has the `{pool['status']}` status."
         success, error = await update_pool_status(
             pool_id, status, moderator.id if status == 'ranked' else None,
             expected_status='pending',
         )
         if not success:
-            return False, f"❌ Ошибка при обновлении статуса: {error}"
+            return False, f"❌ Failed to update the status: {error}"
         action = 'rank' if status == 'ranked' else 'unrank'
         await log_moderation_action(pool_id, action, moderator.id, reason)
 
         try:
             author = await self.bot.fetch_user(pool['created_by'])
             if status == 'ranked':
-                notification = discord.Embed(title="✅ Ваш пул получил статус Ranked!", description=f"**{pool['name']}**", color=0x00ff00)
+                notification = discord.Embed(title="✅ Your pool was ranked!", description=f"**{pool['name']}**", color=0x00ff00)
             else:
-                notification = discord.Embed(title="❌ Ваш пул получил статус Unranked", description=f"**{pool['name']}**", color=0xff0000)
-                notification.add_field(name="Причина", value=reason or "Без указания причины", inline=False)
+                notification = discord.Embed(title="❌ Your pool was unranked", description=f"**{pool['name']}**", color=0xff0000)
+                notification.add_field(name="Reason", value=reason or "No reason provided", inline=False)
             await author.send(embed=notification)
         except discord.DiscordException:
             pass
         status_name = "Ranked" if status == 'ranked' else "Unranked"
-        return True, f"✅ Пул получил статус {status_name}. Автор уведомлён в ЛС, если его настройки это позволяют."
+        return True, f"✅ Pool status changed to {status_name}. The author was notified by DM if allowed."
 
     async def finish_moderation_message(self, message: discord.Message, pool_id: int) -> None:
         pool = await get_pool(pool_id)
@@ -255,10 +255,10 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             return
         ranked = pool['status'] == 'ranked'
         embed = discord.Embed(
-            title="✅ Пул получил статус Ranked" if ranked else "❌ Пул получил статус Unranked",
+            title="✅ Pool ranked" if ranked else "❌ Pool unranked",
             description=(
                 f"**{pool['name']}**\n"
-                f"Статус изменён на **{'Ranked' if ranked else 'Unranked'}**."
+                f"Status changed to **{'Ranked' if ranked else 'Unranked'}**."
             ),
             color=0x00ff00 if ranked else 0xff0000,
         )
@@ -279,9 +279,9 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             title=f"{status_emojis.get(pool['status'], '❓')} {pool['name']}",
             color=status_colors.get(pool['status'], 0x808080),
         )
-        embed.add_field(name="Режим", value=pool['mode'].upper(), inline=True)
-        embed.add_field(name="Статус", value=pool['status'].capitalize(), inline=True)
-        embed.add_field(name="Карт", value=f"`{len(pool_maps)}`", inline=True)
+        embed.add_field(name="Mode", value=pool['mode'].upper(), inline=True)
+        embed.add_field(name="Status", value=pool['status'].capitalize(), inline=True)
+        embed.add_field(name="Maps", value=f"`{len(pool_maps)}`", inline=True)
         for name, value in await self._format_pool_cards(pool_maps, pool['mode']):
             embed.add_field(name=name, value=value, inline=False)
         if include_moderation_history:
@@ -298,7 +298,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
                         line += f"\n└ {log['reason']}"
                     lines.append(line)
                 embed.add_field(
-                    name=f"📋 История модерации ({len(logs)})",
+                    name=f"📋 Moderation history ({len(logs)})",
                     value="\n".join(lines),
                     inline=False,
                 )
@@ -308,23 +308,23 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         """Post a draft to the moderator channel, then mark it pending."""
         pool = await get_pool(pool_id)
         if not pool:
-            return False, "❌ Пул не найден."
+            return False, "❌ Pool not found."
         if pool['created_by'] != author.id:
-            return False, "❌ Только автор пула может отправить его на модерацию."
+            return False, "❌ Only the pool author can submit it for moderation."
         if pool['status'] != 'draft':
-            return False, f"❌ Пул уже в статусе `{pool['status']}`."
+            return False, f"❌ Pool already has the `{pool['status']}` status."
         if await pool_name_in_use_for_review(pool['name'], pool_id):
-            return False, "❌ Нельзя отправить пул: название уже используется пулом на модерации или в рейтинге."
+            return False, "❌ This name is already used by a pending or ranked pool."
 
         success, error = await update_pool_status(pool_id, 'pending', expected_status='draft')
         if not success:
-            return False, f"❌ Ошибка при обновлении статуса: {error}"
+            return False, f"❌ Failed to update the status: {error}"
         posted, post_error = await self.repost_pending_pool(pool)
         if not posted:
             await update_pool_status(pool_id, 'draft', expected_status='pending')
-            return False, f"❌ Не удалось отправить пул в чат модераторов: {post_error}"
+            return False, f"❌ Could not send the pool to the moderation channel: {post_error}"
         await log_moderation_action(pool_id, 'submit', author.id)
-        return True, "✅ Пул отправлен в чат модераторов и ожидает проверки."
+        return True, "✅ Pool sent to the moderation channel and is awaiting review."
 
     @staticmethod
     def _apply_std_slot_mods(stats: dict, slot: str) -> tuple[dict, str]:
@@ -363,7 +363,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
 
     async def _parse_map_snapshot(self, slot: str, beatmap_id: int, mode: str) -> dict:
         """Fetch once from osu! API and return everything needed for later pool views."""
-        print(f"🔎 Парсинг {slot.upper()} · beatmap {beatmap_id} · режим {mode.upper()}...")
+        print(f"🔎 Parsing {slot.upper()} · beatmap {beatmap_id} · mode {mode.upper()}...")
         await asyncio.sleep(self.PARSE_DELAY_SECONDS)
         beatmap = await osu_manager.get_beatmap(beatmap_id)
         ruleset = get_ruleset(mode)
@@ -388,8 +388,8 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
                 'osu': 'STD', 'fruits': 'CTB',
             }
             raise ValueError(
-                f"Карта `{beatmap_id}` не является картой **{mode_labels[mode]}**. "
-                f"Её режим: **{mode_labels.get(source_mode, source_mode)}**."
+                f"Map `{beatmap_id}` is not a **{mode_labels[mode]}** map. "
+                f"Its mode is **{mode_labels.get(source_mode, source_mode)}**."
             )
         is_convert = bool(beatmap.get('convert', False) or is_std_convert)
         stats = {
@@ -416,7 +416,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             'stats': stats, 'mods': mods, 'mod_label': mod_label,
             'parsed_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc),
         }
-        print(f"✅ Распарсена {slot.upper()} · {beatmap['artist']} — {beatmap['title']}")
+        print(f"✅ Parsed {slot.upper()} · {beatmap['artist']} — {beatmap['title']}")
         return snapshot
 
     async def _create_pool_from_maps(
@@ -426,7 +426,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         parsed_maps = []
         for index, (slot, beatmap_id) in enumerate(maps, start=1):
             parsed_maps.append((slot, beatmap_id, await self._parse_map_snapshot(slot, beatmap_id, mode)))
-            await progress_target.edit(content=f"⏳ Создаю пул **{name}**: парсинг карт {index}/{len(maps)}…")
+            await progress_target.edit(content=f"⏳ Creating **{name}**: parsing maps {index}/{len(maps)}…")
         pool_id, error = await create_pool_with_maps(name, mode, author_id, parsed_maps)
         return (pool_id if pool_id != -1 else None), error
 
@@ -434,7 +434,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         self, interaction: discord.Interaction, mode: str, name: str, **category_fields: str | None,
     ) -> None:
         if not 3 <= len(name.strip()) <= 64:
-            await interaction.response.send_message("❌ Название пула должно содержать от 3 до 64 символов.", ephemeral=True)
+            await interaction.response.send_message("❌ Pool names must be between 3 and 64 characters.", ephemeral=True)
             return
         parsed_maps, parse_error = _maps_from_category_fields(mode, **category_fields)
         if parse_error:
@@ -447,7 +447,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
 
         await interaction.response.defer(thinking=True)
         progress = await interaction.followup.send(
-            f"⏳ Создаю пул **{name.strip()}**: парсинг карт 0/{len(parsed_maps)}…", wait=True,
+            f"⏳ Creating **{name.strip()}**: parsing maps 0/{len(parsed_maps)}…", wait=True,
         )
         try:
             pool_id, error = await self._create_pool_from_maps(name.strip(), mode, interaction.user.id, parsed_maps, progress)
@@ -455,13 +455,13 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             await progress.edit(content=f"❌ {error}")
             return
         if pool_id is None:
-            await progress.edit(content=f"❌ Ошибка базы данных: {error}")
+            await progress.edit(content=f"❌ Database error: {error}")
             return
         pool_maps = await get_pool_maps(pool_id)
-        embed = discord.Embed(title="✅ Пул успешно создан!", description=f"**{name.strip()}**", color=0x00ff00)
-        embed.add_field(name="Режим", value=f"`{mode.upper()}`", inline=True)
-        embed.add_field(name="Карт", value=f"`{len(pool_maps)}`", inline=True)
-        embed.add_field(name="Статус", value="✏️ Draft", inline=True)
+        embed = discord.Embed(title="✅ Pool created successfully!", description=f"**{name.strip()}**", color=0x00ff00)
+        embed.add_field(name="Mode", value=f"`{mode.upper()}`", inline=True)
+        embed.add_field(name="Maps", value=f"`{len(pool_maps)}`", inline=True)
+        embed.add_field(name="Status", value="✏️ Draft", inline=True)
         for field_name, value in await self._format_pool_cards(pool_maps, mode):
             embed.add_field(name=field_name, value=value, inline=False)
         # The creation response is the draft's first screen, so expose the
@@ -478,21 +478,21 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         """Validate, parse and save one map change for the slash edit command."""
         pool = await get_pool(pool_id)
         if not pool:
-            return False, "❌ Пул не найден.", None
+            return False, "❌ Pool not found.", None
         if pool['created_by'] != author.id:
-            return False, "❌ Только автор пула может его редактировать.", None
+            return False, "❌ Only the pool author can edit it.", None
         if pool['status'] not in ('draft', 'unranked'):
-            return False, f"❌ Пул в статусе `{pool['status']}` нельзя редактировать.", None
+            return False, f"❌ A pool in `{pool['status']}` status cannot be edited.", None
 
         slot_clean = slot.strip().lower()
         category = 'tb' if slot_clean == 'tb' else ''.join(filter(str.isalpha, slot_clean))
         if category not in get_ruleset(pool['mode']).valid_categories:
             categories = ', '.join(f'`{item.upper()}`' for item in get_ruleset(pool['mode']).valid_categories)
-            return False, f"❌ Недопустимый слот `{slot}` для {pool['mode'].upper()}. Допустимые категории: {categories}", None
+            return False, f"❌ Invalid slot `{slot}` for {pool['mode'].upper()}. Allowed categories: {categories}", None
         if category == 'tb' and slot_clean != 'tb':
-            return False, "❌ Тайбрейкер должен иметь слот `TB` без номера.", None
+            return False, "❌ The tiebreaker must use the `TB` slot without a number.", None
         if category != 'tb' and not slot_clean[len(category):].isdigit():
-            return False, f"❌ Укажите номер слота: например, `{category.upper()}1`.", None
+            return False, f"❌ Include a slot number, for example `{category.upper()}1`.", None
 
         pool_maps = await get_pool_maps(pool_id)
         is_adding = slot_clean not in {item['slot'].lower() for item in pool_maps}
@@ -505,21 +505,21 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         else:
             success, error = await update_pool_map(pool_id, slot_clean, beatmap_id, snapshot)
         if not success:
-            return False, f"❌ Ошибка сохранения карты: {error}", None
+            return False, f"❌ Failed to save the map: {error}", None
 
         if pool['status'] == 'unranked':
             await update_pool_status(pool_id, 'draft', expected_status='unranked')
         await log_moderation_action(pool_id, 'add' if is_adding else 'edit', author.id, f"{slot_clean}→{beatmap_id}")
         updated_maps = await get_pool_maps(pool_id)
         valid, _ = validate_pool_maps([(item['slot'], item['beatmap_id']) for item in updated_maps], pool['mode'])
-        action = "добавлена" if is_adding else "изменена"
+        action = "added" if is_adding else "updated"
         embed = discord.Embed(
-            title=f"✅ Карта успешно {action}",
+            title=f"✅ Map {action} successfully",
             description=f"**{pool['name']}**",
             color=0x00ff00,
         )
-        embed.add_field(name="Изменение", value=f"`{slot_clean.upper()}` → [osu.ppy.sh/b/{beatmap_id}](https://osu.ppy.sh/b/{beatmap_id})", inline=False)
-        embed.add_field(name="Валидация", value="✅ Пул соответствует требованиям" if valid else "⚠️ Пулу всё ещё не хватает обязательных карт", inline=False)
+        embed.add_field(name="Change", value=f"`{slot_clean.upper()}` → [osu.ppy.sh/b/{beatmap_id}](https://osu.ppy.sh/b/{beatmap_id})", inline=False)
+        embed.add_field(name="Validation", value="✅ Pool meets the requirements" if valid else "⚠️ Required maps are still missing", inline=False)
         return True, "", embed
 
     async def pool_slot_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -560,16 +560,16 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         visible_ids = {pool['pool_id'] for pool in await self._visible_pools(user)}
         matches = [pool for pool in await get_pool_by_name(name) if pool['pool_id'] in visible_ids]
         if not matches:
-            return None, "❌ Пул с таким названием не найден или недоступен."
+            return None, "❌ Pool not found or unavailable."
         if len(matches) > 1:
-            return None, "❌ Найдено несколько доступных черновиков с таким названием. Измените название одного из них."
+            return None, "❌ Multiple accessible drafts have this name. Rename one of them."
         return matches[0], ""
     
-    # === ЕДИНАЯ ФУНКЦИЯ ФОРМАТИРОВАНИЯ КАРТ ДЛЯ ВСЕХ КОМАНД ===
+    # === SHARED MAP FORMATTER FOR ALL COMMANDS ===
     async def _format_pool_cards(self, pool_maps: list, mode: str) -> list[tuple[str, str]]:
         """
-        Форматирует карты пула для отображения в embed.
-        Возвращает список кортежей (имя_категории, значение_поля)
+        Format pool maps for embed display.
+        Returns a list of (category_name, field_value) tuples.
         """
         category_data = {}
         
@@ -579,9 +579,9 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             try:
                 snapshot = map_dict.get('snapshot')
                 if not snapshot:
-                    raise ValueError('Карта ещё не распарсена. Обновите её через !pool-edit.')
+                    raise ValueError('This map has not been parsed yet. Update it with !pool-edit.')
                 
-                # Извлекаем категорию из слота
+                # Extract the category from the slot
                 category = 'tb' if slot == 'TB' else ''.join(filter(str.isalpha, slot)).lower()
                 
                 # Build a readable Discord card. Slot categories are kept as
@@ -616,7 +616,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         sorted_categories = [cat for cat in category_order if cat in category_data]
         sorted_categories.extend([cat for cat in category_data if cat not in sorted_categories])
         
-        # Формируем поля для embed
+        # Build embed fields
         fields = []
         for category in sorted_categories:
             cards = category_data[category]
@@ -628,20 +628,20 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         
         return fields
     
-    @app_commands.command(name="pool_create", description="Создать STD, Taiko или CTB-пул")
+    @app_commands.command(name="pool_create", description="Create a STD, Taiko, or CTB pool")
     @app_commands.choices(mode=[
         app_commands.Choice(name="STD", value="std"),
         app_commands.Choice(name="Taiko", value="taiko"),
         app_commands.Choice(name="CTB", value="ctb"),
     ])
     @app_commands.describe(
-        name="Название пула",
-        nomod="NM — NoMod: ID через пробел",
-        hidden="HD — Hidden: ID через пробел",
-        hardrock="HR — Hard Rock: ID через пробел",
-        doubletime="DT — Double Time: ID через пробел",
-        freemods="FM — FreeMods: ID через пробел",
-        tiebreaker="TB — Tiebreaker: ID карты",
+        name="Pool name",
+        nomod="NM — NoMod: beatmap IDs separated by spaces",
+        hidden="HD — Hidden: beatmap IDs separated by spaces",
+        hardrock="HR — Hard Rock: beatmap IDs separated by spaces",
+        doubletime="DT — Double Time: beatmap IDs separated by spaces",
+        freemods="FM — FreeMods: beatmap IDs separated by spaces",
+        tiebreaker="TB — Tiebreaker: beatmap ID",
     )
     async def pool_create_slash(
         self, interaction: discord.Interaction, mode: app_commands.Choice[str], name: str,
@@ -654,20 +654,20 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             fm=freemods, tb=tiebreaker,
         )
 
-    @app_commands.command(name="pool_create_mania", description="Создать Mania-пул 4K или 7K")
+    @app_commands.command(name="pool_create_mania", description="Create a 4K or 7K Mania pool")
     @app_commands.choices(key_mode=[
         app_commands.Choice(name="4K", value="mania4k"),
         app_commands.Choice(name="7K", value="mania7k"),
     ])
     @app_commands.describe(
-        key_mode="Подрежим Mania",
-        name="Название пула",
-        rice="RC — Rice: ID через пробел",
-        hybrids="HB — Hybrids: ID через пробел",
-        longnotes="LN — Long Notes: ID через пробел",
-        speedvariations="SV — Speed Variations: ID через пробел",
-        extreme="EX — Extreme: ID через пробел",
-        tiebreaker="TB — Tiebreaker: ID карты",
+        key_mode="Mania key mode",
+        name="Pool name",
+        rice="RC — Rice: beatmap IDs separated by spaces",
+        hybrids="HB — Hybrids: beatmap IDs separated by spaces",
+        longnotes="LN — Long Notes: beatmap IDs separated by spaces",
+        speedvariations="SV — Speed Variations: beatmap IDs separated by spaces",
+        extreme="EX — Extreme: beatmap IDs separated by spaces",
+        tiebreaker="TB — Tiebreaker: beatmap ID",
     )
     async def pool_create_mania(
         self, interaction: discord.Interaction, key_mode: app_commands.Choice[str], name: str, rice: str,
@@ -679,8 +679,8 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             ln=longnotes, sv=speedvariations, ex=extreme, tb=tiebreaker,
         )
 
-    @app_commands.command(name="pool_edit", description="Добавить или заменить карту в пуле")
-    @app_commands.describe(pool_name="Точное название пула", slot="Слот, например NM1 или TB", beatmap_id="ID битмапа osu!")
+    @app_commands.command(name="pool_edit", description="Add or replace a map in a pool")
+    @app_commands.describe(pool_name="Exact pool name", slot="Slot, for example NM1 or TB", beatmap_id="osu! beatmap ID")
     @app_commands.autocomplete(pool_name=pool_name_autocomplete)
     @app_commands.autocomplete(slot=pool_slot_autocomplete)
     async def pool_edit_slash(self, interaction: discord.Interaction, pool_name: str, slot: str, beatmap_id: int):
@@ -695,8 +695,8 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             return
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="pool_delete", description="Удалить собственный черновик")
-    @app_commands.describe(pool_name="Точное название черновика")
+    @app_commands.command(name="pool_delete", description="Delete your own draft")
+    @app_commands.describe(pool_name="Exact draft name")
     @app_commands.autocomplete(pool_name=pool_name_autocomplete)
     async def pool_delete_slash(self, interaction: discord.Interaction, pool_name: str):
         pool, error = await self._resolve_pool_name(pool_name, interaction.user)
@@ -704,19 +704,19 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
             await interaction.response.send_message(error, ephemeral=True)
             return
         if pool['created_by'] != interaction.user.id:
-            await interaction.response.send_message("❌ Удалить черновик может только его автор.", ephemeral=True)
+            await interaction.response.send_message("❌ Only the pool author can delete a draft.", ephemeral=True)
             return
         if pool['status'] != 'draft':
-            await interaction.response.send_message("❌ Удалять можно только пулы в статусе Draft.", ephemeral=True)
+            await interaction.response.send_message("❌ Only pools in Draft status can be deleted.", ephemeral=True)
             return
         await interaction.response.send_message(
-            f"Удалить черновик **{pool['name']}** без возможности восстановления?",
+            f"Delete draft **{pool['name']}** permanently?",
             view=DraftDeleteView(self, pool['pool_id'], interaction.user.id),
             ephemeral=True,
         )
 
-    @app_commands.command(name="pool_list", description="Показать доступные пулы")
-    @app_commands.describe(mode="Фильтр по режиму", status="Фильтр по статусу")
+    @app_commands.command(name="pool_list", description="List available pools")
+    @app_commands.describe(mode="Filter by mode", status="Filter by status")
     @app_commands.choices(
         mode=[
             app_commands.Choice(name="STD", value="std"), app_commands.Choice(name="Taiko", value="taiko"),
@@ -735,22 +735,22 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
     ):
         pools = await self._visible_pools(interaction.user, mode=mode.value if mode else None, status=status.value if status else None)
         if not pools:
-            await interaction.response.send_message("📭 Подходящих пулов не найдено.", ephemeral=True)
+            await interaction.response.send_message("📭 No matching pools found.", ephemeral=True)
             return
         labels = {'draft': '✏️ Draft', 'pending': '⏳ Pending', 'ranked': '✅ Ranked', 'unranked': '❌ Unranked'}
-        embed = discord.Embed(title="📋 Пулы", color=0x0099ff)
+        embed = discord.Embed(title="📋 Pools", color=0x0099ff)
         for pool in pools[:25]:
             embed.add_field(
                 name=pool['name'],
-                value=f"{pool['mode'].upper()} · {labels.get(pool['status'], pool['status'])} · {len(pool.get('maps', []))} карт",
+                value=f"{pool['mode'].upper()} · {labels.get(pool['status'], pool['status'])} · {len(pool.get('maps', []))} maps",
                 inline=False,
             )
         if len(pools) > 25:
-            embed.set_footer(text=f"Показаны первые 25 из {len(pools)} пулов.")
+            embed.set_footer(text=f"Showing the first 25 of {len(pools)} pools.")
         await interaction.response.send_message(embed=embed)
     
-    @app_commands.command(name="pool_view", description="Просмотреть детали пула")
-    @app_commands.describe(pool_name="Точное название пула")
+    @app_commands.command(name="pool_view", description="View pool details")
+    @app_commands.describe(pool_name="Exact pool name")
     @app_commands.autocomplete(pool_name=pool_name_autocomplete)
     async def pool_view_slash(self, interaction: discord.Interaction, pool_name: str):
         """Slash-command pool view; drafts include a private author-only Submit button."""
@@ -767,7 +767,7 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
                 pool['pool_id'], include_moderation_history=is_moderator_channel,
             )
             if embed is None or pool is None:
-                await interaction.followup.send("❌ Пул не найден.", ephemeral=True)
+                await interaction.followup.send("❌ Pool not found.", ephemeral=True)
                 return
 
             view = PoolSubmitView(self, pool['pool_id'], pool['created_by']) if pool['status'] == 'draft' else None
@@ -779,10 +779,10 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
         except Exception:
             traceback.print_exc()
             await interaction.followup.send(
-                "❌ Не удалось открыть пул. Ошибка записана в консоль бота.", ephemeral=True
+                "❌ Could not open the pool. The error was logged.", ephemeral=True
             )
     
-    @app_commands.command(name="pool_formats", description="Показать актуальные требования пула")
+    @app_commands.command(name="pool_formats", description="Show current pool requirements")
     @app_commands.choices(mode=[
         app_commands.Choice(name="STD", value="std"),
         app_commands.Choice(name="Taiko", value="taiko"),
@@ -793,63 +793,63 @@ class PoolCommands(commands.Cog, name="Команды пулов"):
     async def pool_formats_slash(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
         full_names = {'std': 'osu! Standard', 'taiko': 'osu! Taiko', 'ctb': 'osu! Catch', 'mania': 'osu! Mania 4K', 'mania4k': 'osu! Mania 4K', 'mania7k': 'osu! Mania 7K'}
         embed = discord.Embed(
-            title=f"📋 Требования пула: {full_names[mode.value]}",
+            title=f"📋 Pool requirements: {full_names[mode.value]}",
             description=format_category_requirements(mode.value),
             color=0x0099ff,
         )
         # Keep private Draft/Pending entries out of public channels.
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="pool_help", description="Справка по командам пулов")
+    @app_commands.command(name="pool_help", description="Show pool command help")
     async def pool_help_slash(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🛠 Управление пулами",
-            description="Пулы создаются как **Draft**, затем отправляются на модерацию кнопкой Submit.",
+            title="🛠 Pool management",
+            description="Pools start as **Draft** and can be submitted for moderation with the Submit button.",
             color=0x0099ff,
         )
         embed.add_field(
-            name="Создание",
-            value="`/pool_create` — STD, Taiko или CTB\n"
+            name="Creation",
+            value="`/pool_create` — STD, Taiko, or CTB\n"
                   "`/pool_create_mania` — Mania",
             inline=False,
         )
         embed.add_field(
-            name="Работа с пулом",
-            value="`/pool_list` — список доступных пулов и фильтры\n"
-                  "`/pool_view` — просмотр по названию\n"
-                  "`/pool_edit` — добавить или заменить карту\n"
-                  "`/pool_delete` — удалить собственный Draft",
+            name="Pool actions",
+            value="`/pool_list` — list pools and filter them\n"
+                  "`/pool_view` — view a pool by name\n"
+                  "`/pool_edit` — add or replace a map\n"
+                  "`/pool_delete` — delete your own Draft",
             inline=False,
         )
         embed.add_field(
-            name="Модерация",
-            value="Откройте Draft через `/pool_view` и нажмите **Submit**.\n"
-                  "В чате модераторов используются кнопки **Rank** и **Unrank**.\n"
-                  "Кнопки модерации сохраняются после перезапуска бота.",
+            name="Moderation",
+            value="Open a Draft with `/pool_view` and press **Submit**.\n"
+                  "Moderators use the **Rank** and **Unrank** buttons.\n"
+                  "Moderation buttons survive bot restarts.",
             inline=False,
         )
         embed.add_field(
-            name="Правила",
-            value="`/pool_formats` — актуальные категории и минимальные требования режима.",
+            name="Rules",
+            value="`/pool_formats` — current categories and minimum mode requirements.",
             inline=False,
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="pool_repost_pending", description="Повторно отправить Pending-пулы в чат модераторов")
+    @app_commands.command(name="pool_repost_pending", description="Repost pending pools to the moderation channel")
     @app_commands.checks.has_permissions(administrator=True)
     async def pool_repost_pending_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True, ephemeral=True)
         pending_pools = await get_pools_by_status('pending')
         if not pending_pools:
-            await interaction.followup.send("📭 Pending-пулов нет.", ephemeral=True)
+            await interaction.followup.send("📭 No pending pools found.", ephemeral=True)
             return
         succeeded, failures = [], []
         for pool in pending_pools:
             success, error = await self.repost_pending_pool(pool)
             (succeeded if success else failures).append(pool['name'] if success else f"{pool['name']} — {error}")
-        message = f"✅ Повторно отправлено: {len(succeeded)}."
+        message = f"✅ Reposted: {len(succeeded)}."
         if failures:
-            message += f"\n❌ Ошибки ({len(failures)}):\n" + "\n".join(failures[:10])
+            message += f"\n❌ Errors ({len(failures)}):\n" + "\n".join(failures[:10])
         await interaction.followup.send(message, ephemeral=True)
     
 async def setup(bot: commands.Bot):

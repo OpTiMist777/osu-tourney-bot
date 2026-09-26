@@ -101,7 +101,7 @@ async def init_db() -> None:
     await db.osu_accounts.create_index([("osu_user_id", ASCENDING)], unique=True)
     await db.osu_link_challenges.create_index([("code_hash", ASCENDING)], unique=True)
     await db.osu_link_challenges.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0)
-    print("✅ MongoDB инициализирована")
+    print("✅ MongoDB initialized")
 
 
 async def _next_pool_id() -> int:
@@ -193,7 +193,7 @@ async def update_pool_status(
         result = await _db().pools.update_one(query, {"$set": updates})
         if result.matched_count == 1:
             return True, ""
-        return False, "Статус пула уже изменён или пул не найден"
+        return False, "Pool status has already changed or the pool was not found"
     except PyMongoError as error:
         return False, str(error)
 
@@ -248,7 +248,7 @@ async def get_recent_pools(limit: int = 10) -> List[Dict]:
 async def delete_pool(pool_id: int) -> Tuple[bool, str]:
     try:
         result = await _db().pools.delete_one({"pool_id": pool_id})
-        return result.deleted_count == 1, "" if result.deleted_count else "Пул не найден"
+        return result.deleted_count == 1, "" if result.deleted_count else "Pool not found"
     except PyMongoError as error:
         return False, str(error)
 
@@ -259,7 +259,7 @@ async def update_pool_map(pool_id: int, slot: str, beatmap_id: int, snapshot: Op
         {"pool_id": pool_id, "maps.slot": slot},
         {"$set": {f"maps.$.{key}": value for key, value in _map_document(slot, beatmap_id, snapshot).items() if key != "slot"}},
     )
-    return result.matched_count == 1, "" if result.matched_count else f"Слот `{slot}` не найден"
+    return result.matched_count == 1, "" if result.matched_count else f"Slot `{slot}` not found"
 
 
 async def add_pool_map(pool_id: int, slot: str, beatmap_id: int, snapshot: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
@@ -268,7 +268,7 @@ async def add_pool_map(pool_id: int, slot: str, beatmap_id: int, snapshot: Optio
     result = await _db().pools.update_one(
         {"pool_id": pool_id, "maps.slot": {"$ne": slot}}, {"$push": {"maps": item}}
     )
-    return result.matched_count == 1, "" if result.matched_count else f"Слот `{slot}` уже существует или пул не найден"
+    return result.matched_count == 1, "" if result.matched_count else f"Slot `{slot}` already exists or the pool was not found"
 
 async def get_match_by_bancho_channel(channel: str) -> Optional[Dict]:
     """Find the latest live match in a multiplayer chat, including its lobby phase."""

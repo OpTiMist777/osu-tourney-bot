@@ -123,52 +123,52 @@ class BanchoIRC:
     async def _send(self, line: str) -> None:
         writer = self.writer
         if not writer or writer.is_closing() or not self._connected.is_set():
-            logger.warning("Bancho IRC: команда не отправлена, соединение неактивно: %s", line.split(' ', 1)[0])
+            logger.warning("Bancho IRC: command not sent because the connection is inactive: %s", line.split(' ', 1)[0])
             self._schedule_reconnect()
-            raise RuntimeError("Bancho IRC не подключён")
+            raise RuntimeError("Bancho IRC is not connected")
         try:
             writer.write((line + "\r\n").encode())
             await writer.drain()
         except (ConnectionError, OSError, asyncio.IncompleteReadError) as error:
-            logger.warning("Bancho IRC: ошибка отправки, соединение потеряно: %s", error)
+            logger.warning("Bancho IRC: send failed; connection lost: %s", error)
             self._handle_connection_lost(writer)
-            raise RuntimeError("Соединение с Bancho IRC потеряно") from error
+            raise RuntimeError("Bancho IRC connection lost") from error
     async def connect(self) -> None:
         if self.writer and not self.writer.is_closing() and self._connected.is_set(): return
         if not self.configured:
-            logger.error("Bancho IRC: подключение невозможно, учётные данные не настроены")
-            raise RuntimeError("BANCHO_USERNAME или BANCHO_IRC_PASSWORD не заданы в .env")
+            logger.error("Bancho IRC: cannot connect because credentials are not configured")
+            raise RuntimeError("BANCHO_USERNAME or BANCHO_IRC_PASSWORD is missing from .env")
         async with self._connect_lock:
             if self.writer and not self.writer.is_closing() and self._connected.is_set(): return
             self._closing = False
             self._connected.clear()
-            logger.info("Подключение к Bancho IRC как %s", self.username)
+            logger.info("Connecting to Bancho IRC as %s", self.username)
             try:
                 reader, writer = await asyncio.open_connection(self.HOST, self.PORT)
             except (OSError, ConnectionError, TimeoutError) as error:
-                logger.error("Bancho IRC: TCP-подключение к %s:%s не удалось: %s", self.HOST, self.PORT, error)
-                raise RuntimeError("Не удалось подключиться к Bancho IRC") from error
+                logger.error("Bancho IRC: TCP connection to %s:%s failed: %s", self.HOST, self.PORT, error)
+                raise RuntimeError("Could not connect to Bancho IRC") from error
             self.reader, self.writer = reader, writer
-            logger.info("Bancho IRC: TCP-соединение установлено, отправляю IRC-аутентификацию")
+            logger.info("Bancho IRC: TCP connection established; sending IRC authentication")
             nick = self.username.replace(" ", "_")
             try:
                 writer.write((f"PASS {self.password}\r\nNICK {nick}\r\nUSER {nick} 0 * :{nick}\r\n").encode())
                 await writer.drain()
             except (ConnectionError, OSError) as error:
-                logger.error("Bancho IRC: не удалось отправить IRC-аутентификацию: %s", error)
+                logger.error("Bancho IRC: failed to send authentication: %s", error)
                 writer.close()
                 await writer.wait_closed()
                 if self.writer is writer:
                     self.reader = self.writer = None
-                raise RuntimeError("Не удалось отправить данные входа в Bancho IRC") from error
+                raise RuntimeError("Could not send Bancho IRC login data") from error
             self._reader_task = asyncio.create_task(self._read_loop(reader, writer))
             try:
                 await asyncio.wait_for(self._connected.wait(), 15)
-                logger.info("Bancho IRC: вход подтверждён")
+                logger.info("Bancho IRC: login confirmed")
             except TimeoutError as error:
-                logger.error("Bancho IRC: сервер не подтвердил вход за 15 секунд")
+                logger.error("Bancho IRC: server did not confirm login within 15 seconds")
                 self._handle_connection_lost(writer)
-                raise RuntimeError("Bancho IRC не подтвердил вход за 15 секунд") from error
+                raise RuntimeError("Bancho IRC did not confirm login within 15 seconds") from error
     async def close(self) -> None:
         self._closing = True
         reconnect_task = self._reconnect_task
@@ -190,13 +190,13 @@ class BanchoIRC:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
-        logger.info("Bancho IRC: соединение закрыто")
+        logger.info("Bancho IRC: connection closed")
 
     def forget_channel(self, channel: str) -> None:
         """Stop rejoining a room that has been closed or cancelled."""
         removed = self._channels.pop(channel.casefold(), None)
         if removed:
-            logger.info("Bancho IRC: MP-комната исключена из reconnect: %s", removed)
+            logger.info("Bancho IRC: removed MP room from reconnect tracking: %s", removed)
 
     async def restore_channel(self, channel: str) -> None:
         """Rejoin one persisted MP room after a full bot-process restart."""
@@ -205,7 +205,7 @@ class BanchoIRC:
         self._channels[channel.casefold()] = channel
         await self.connect()
         await self._send(f"JOIN {channel}")
-        logger.info("IRC → восстановительный JOIN %s", channel)
+        logger.info("IRC → restore JOIN %s", channel)
         # Bancho has no portable standalone JOIN acknowledgement. Give the room
         # a moment to attach before restoring the persisted match state.
         await asyncio.sleep(0.5)
@@ -215,7 +215,7 @@ class BanchoIRC:
     def set_keep_connected(self, enabled: bool) -> None:
         """Keep the IRC session alive even when no MP room is active."""
         self._keep_connected = enabled
-        logger.info("Bancho IRC: постоянное соединение %s", "включено" if enabled else "выключено")
+        logger.info("Bancho IRC: persistent connection %s", "enabled" if enabled else "disabled")
 
     def _handle_connection_lost(self, writer) -> None:
         is_current = self.writer is writer
@@ -233,9 +233,9 @@ class BanchoIRC:
         if self._reconnect_task and not self._reconnect_task.done():
             return
         logger.info(
-            "Bancho IRC: планирую reconnect (комнат: %s, постоянное соединение: %s)",
+            "Bancho IRC: scheduling reconnect (rooms: %s, persistent connection: %s)",
             len(self._channels),
-            "да" if self._keep_connected else "нет",
+            "yes" if self._keep_connected else "no",
         )
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
@@ -244,27 +244,27 @@ class BanchoIRC:
         try:
             while not self._closing and (self._channels or self._keep_connected):
                 try:
-                    logger.info("Bancho IRC: попытка reconnect")
+                    logger.info("Bancho IRC: attempting reconnect")
                     await self.connect()
                     channels = list(self._channels.values())
                     for channel in channels:
                         await self._send(f"JOIN {channel}")
-                        logger.info("IRC → повторный JOIN %s", channel)
+                        logger.info("IRC → rejoin %s", channel)
                     await asyncio.sleep(0.5)
                     if self.reconnect_handler:
                         for channel in channels:
                             try:
                                 await self.reconnect_handler(channel)
                             except Exception:
-                                logger.exception("Bancho IRC: не удалось восстановить состояние %s", channel)
+                                logger.exception("Bancho IRC: failed to restore state for %s", channel)
                     if not self.writer or self.writer.is_closing() or not self._connected.is_set():
-                        raise RuntimeError("соединение снова потеряно во время восстановления")
-                    logger.info("Bancho IRC: соединение восстановлено, комнат: %s", len(channels))
+                        raise RuntimeError("connection was lost again during recovery")
+                    logger.info("Bancho IRC: connection restored; rooms: %s", len(channels))
                     return
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:
-                    logger.warning("Bancho IRC: reconnect не удался (%s), следующая попытка через %s с", error, delay)
+                    logger.warning("Bancho IRC: reconnect failed (%s); next attempt in %s s", error, delay)
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, 30)
         finally:
@@ -289,7 +289,7 @@ class BanchoIRC:
         """Send a direct osu! chat message without joining any channel."""
         await self.connect()
         await self._send(f"PRIVMSG {username} :{text}")
-        logger.info("IRC → PM %s: сообщение отправлено", username)
+        logger.info("IRC → PM %s: message sent", username)
 
     async def verify_room(self, channel: str) -> None:
         """Confirm that BanchoBot answers from the MP channel before setup."""
@@ -298,11 +298,11 @@ class BanchoIRC:
         await self.send_channel(channel, "!mp settings")
         try:
             await asyncio.wait_for(waiter, 10)
-            logger.info("BanchoBot подтвердил доступ к настройкам %s", channel)
+            logger.info("BanchoBot confirmed settings access for %s", channel)
         except TimeoutError as error:
             self._settings_waiters.pop(channel.casefold(), None)
-            logger.error("Нет ответа BanchoBot на !mp settings в %s", channel)
-            raise RuntimeError("BanchoBot не ответил на !mp settings в созданной комнате") from error
+            logger.error("BanchoBot did not answer !mp settings in %s", channel)
+            raise RuntimeError("BanchoBot did not answer !mp settings in the created room") from error
 
     async def get_match_settings(
         self,
@@ -320,14 +320,14 @@ class BanchoIRC:
         self._settings_buffers[key] = []
         first_line_waiter = asyncio.get_running_loop().create_future()
         self._settings_first_line_waiters[key] = first_line_waiter
-        logger.info("Bancho IRC: запрашиваю !mp settings в %s", channel)
+        logger.info("Bancho IRC: requesting !mp settings in %s", channel)
         await self.send_channel(channel, "!mp settings")
         try:
             await asyncio.wait_for(first_line_waiter, first_line_wait_seconds)
             await asyncio.sleep(settle_seconds)
         except TimeoutError:
             logger.warning(
-                "Bancho IRC: !mp settings в %s не вернула первую строку за %s с",
+                "Bancho IRC: !mp settings in %s returned no first line within %s s",
                 channel,
                 first_line_wait_seconds,
             )
@@ -336,10 +336,10 @@ class BanchoIRC:
                 self._settings_first_line_waiters.pop(key, None)
         lines = self._settings_buffers.pop(key, [])
         if not lines:
-            logger.warning("Bancho IRC: !mp settings в %s не вернула ни одной строки", channel)
+            logger.warning("Bancho IRC: !mp settings in %s returned no lines", channel)
         settings = parse_match_settings(lines)
         logger.info(
-            "Bancho IRC: !mp settings в %s собраны (%s строк, карта=%s, игроков=%s)",
+            "Bancho IRC: !mp settings in %s collected (%s lines, map=%s, players=%s)",
             channel,
             len(lines),
             settings.get("beatmap_id", "?"),
@@ -349,15 +349,15 @@ class BanchoIRC:
     async def make_match(self, name: str) -> str:
         async with self._match_make_lock:
             await self.connect()
-            logger.info("Запрос создания Bancho-комнаты: %s", name)
+            logger.info("Requesting Bancho room creation: %s", name)
             waiter: asyncio.Future[str] = asyncio.get_running_loop().create_future()
             self._match_waiter = (waiter, name)
             await self.send_channel("BanchoBot", f"!mp make {name}")
             try:
                 match_id = await asyncio.wait_for(waiter, 20)
             except TimeoutError as error:
-                logger.error("Bancho IRC: BanchoBot не подтвердил создание комнаты за 20 секунд")
-                raise RuntimeError("BanchoBot не подтвердил создание комнаты") from error
+                logger.error("Bancho IRC: BanchoBot did not confirm room creation within 20 seconds")
+                raise RuntimeError("BanchoBot did not confirm room creation") from error
             finally:
                 # A delayed reply from an earlier request must never satisfy
                 # the waiter belonging to the next request.
@@ -365,7 +365,7 @@ class BanchoIRC:
                     self._match_waiter = None
             channel = f"#mp_{match_id}"
             self._channels[channel.casefold()] = channel
-            logger.info("BanchoBot создал комнату %s", channel)
+            logger.info("BanchoBot created room %s", channel)
             await self._send(f"JOIN {channel}")
             logger.info("IRC → JOIN %s", channel)
             # `/join #mp_<id>` has no guaranteed standalone IRC acknowledgement
@@ -374,7 +374,7 @@ class BanchoIRC:
             await asyncio.sleep(1)
             await self.verify_room(channel)
             await self.send_channel(channel, "!mp set 0 3 3")
-            logger.info("Комната %s настроена командой !mp set 0 3 3", channel)
+            logger.info("Room %s configured with !mp set 0 3 3", channel)
             return channel
     async def _read_loop(self, reader, writer) -> None:
         try:
@@ -390,7 +390,7 @@ class BanchoIRC:
                     continue
                 if " 001 " in raw:
                     self._connected.set()
-                    logger.info("Bancho IRC: получено IRC welcome-сообщение (001)")
+                    logger.info("Bancho IRC: received IRC welcome message (001)")
                     # Bancho auto-joins #osu for IRC clients.  This bot never
                     # uses that global channel and must not receive its noisy
                     # join/quit stream.
@@ -399,7 +399,7 @@ class BanchoIRC:
                         await writer.drain()
                     except (ConnectionError, OSError):
                         break
-                    logger.info("IRC → PART #osu (общий канал не используется)")
+                    logger.info("IRC → PART #osu (global channel is not used)")
                     continue
                 # Only room/BanchoBot traffic is useful to operators.  Do not
                 # print unrelated global-channel join, quit, and timeout noise.
@@ -428,12 +428,12 @@ class BanchoIRC:
                         waiter.set_result(url.group(1))
                         creation_confirmed = True
                 if creation_confirmed:
-                    logger.info("BanchoBot подтвердил создание MP-комнаты: #%s", url.group(1))
+                        logger.info("BanchoBot confirmed MP room creation: #%s", url.group(1))
                 if sender.casefold() == "banchobot":
                     waiter = self._settings_waiters.pop(target.casefold(), None)
                     if waiter and not waiter.done():
                         waiter.set_result(None)
-                        logger.info("BanchoBot ответил на проверку !mp settings в %s", target)
+                        logger.info("BanchoBot answered the !mp settings check in %s", target)
                     settings_key = target.casefold()
                     buffer = self._settings_buffers.get(settings_key)
                     if buffer is not None:
@@ -445,27 +445,27 @@ class BanchoIRC:
                             and text.startswith(("Room name:", "Beatmap:", "Team mode:", "Active mods:", "Players:", "Slot "))
                         ):
                             first_line_waiter.set_result(None)
-                            logger.info("Bancho IRC: получена первая строка !mp settings в %s", target)
+                            logger.info("Bancho IRC: received the first !mp settings line in %s", target)
                 if target.startswith("#") and self.message_handler: await self.message_handler(sender, target, text)
                 elif (
                     target.casefold() == self.username.replace(" ", "_").casefold()
                     and sender.casefold() != "banchobot"
                     and self.private_message_handler
                 ):
-                    logger.info("IRC ← PM от %s: сообщение получено", sender)
+                    logger.info("IRC ← PM from %s: message received", sender)
                     await self.private_message_handler(sender, text)
         except asyncio.CancelledError:
             raise
         except (ConnectionError, OSError, asyncio.IncompleteReadError) as error:
-            logger.warning("Bancho IRC: соединение разорвано: %s", error)
+            logger.warning("Bancho IRC: connection dropped: %s", error)
         except Exception:
-            logger.exception("Bancho IRC: ошибка обработки входящего IRC-сообщения")
+            logger.exception("Bancho IRC: error while processing an incoming IRC message")
         else:
-            logger.warning("Bancho IRC: сервер закрыл соединение (EOF)")
+            logger.warning("Bancho IRC: server closed the connection (EOF)")
         finally:
             if self.writer is writer:
                 self.reader = self.writer = None
                 self._connected.clear()
                 if not self._closing:
-                    logger.warning("Bancho IRC: потеряно соединение, запускаю reconnect")
+                    logger.warning("Bancho IRC: connection lost; starting reconnect")
                     self._schedule_reconnect()

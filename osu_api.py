@@ -13,7 +13,7 @@ OSU_API_URL = "https://osu.ppy.sh/api/v2"
 OSU_TOKEN_URL = "https://osu.ppy.sh/oauth/token"
 
 class OsuClientManager:
-    """Прямой клиент osu! API v2 через aiohttp"""
+    """Direct osu! API v2 client using aiohttp."""
     
     def __init__(self):
         self.access_token = None
@@ -21,7 +21,7 @@ class OsuClientManager:
         self._lock = asyncio.Lock()
     
     async def _get_token(self):
-        """Получает OAuth2 токен от osu! API"""
+        """Obtain an OAuth2 token from the osu! API."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 OSU_TOKEN_URL,
@@ -35,15 +35,15 @@ class OsuClientManager:
             ) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
-                    raise Exception(f"❌ Не удалось получить токен osu! API (HTTP {resp.status}): {error_text}")
+                    raise Exception(f"❌ Could not obtain the osu! API token (HTTP {resp.status}): {error_text}")
                 
                 data = await resp.json()
                 self.access_token = data["access_token"]
                 self.token_expires_at = asyncio.get_event_loop().time() + data.get("expires_in", 86400) - 3600
-                print("✅ osu! API токен получен")
+                print("✅ osu! API token received")
     
     async def _ensure_token(self):
-        """Гарантирует, что токен актуален"""
+        """Ensure that the token is current."""
         current_time = asyncio.get_event_loop().time()
         if not self.access_token or current_time >= self.token_expires_at:
             async with self._lock:
@@ -60,7 +60,7 @@ class OsuClientManager:
         return max(0.0, self.token_expires_at - asyncio.get_running_loop().time())
     
     async def get_beatmap(self, beatmap_id: int) -> dict:
-        """Получает полные данные о битмапе по ID"""
+        """Fetch full beatmap data by ID."""
         await self._ensure_token()
         
         async with aiohttp.ClientSession() as session:
@@ -72,14 +72,14 @@ class OsuClientManager:
                 }
             ) as resp:
                 if resp.status == 404:
-                    raise ValueError(f"❌ Битмап {beatmap_id} не найден в osu! базе")
+                    raise ValueError(f"❌ Beatmap {beatmap_id} was not found in osu!")
                 if resp.status != 200:
                     error_text = await resp.text()
-                    raise Exception(f"❌ osu! API ошибка (HTTP {resp.status}): {error_text}")
+                    raise Exception(f"❌ osu! API error (HTTP {resp.status}): {error_text}")
                 
                 data = await resp.json()
                 
-                # Маппинг режимов osu! API → наш формат
+                # Map osu! API modes to our internal format
                 mode_map = {
                     "osu": "osu",
                     "taiko": "taiko",
@@ -87,19 +87,19 @@ class OsuClientManager:
                     "mania": "mania"
                 }
                 
-                # ОПРЕДЕЛЕНИЕ КОНВЕРТА
+                # Detect converted beatmaps
                 is_convert = False
                 beatmapset = data.get("beatmapset", {})
                 
-                # Проверка 1: Поле convert в beatmapset
+                # Check 1: the convert field in the beatmapset
                 if beatmapset.get("convert") is True:
                     is_convert = True
-                # Проверка 2: Сравнение режимов
+                # Check 2: compare modes
                 elif "mode" in data and "mode" in beatmapset:
                     if data["mode"] != beatmapset["mode"]:
                         is_convert = True
                 
-                # Извлечение всех параметров карты
+                # Extract all beatmap attributes
                 return {
                     "id": data["id"],
                     "set_id": data["beatmapset_id"],
@@ -143,13 +143,13 @@ class OsuClientManager:
                         continue
                     if resp.status != 200:
                         error_text = await resp.text()
-                        raise RuntimeError(f"osu! API ошибка при поиске пользователя (HTTP {resp.status}): {error_text}")
+                        raise RuntimeError(f"osu! API user lookup failed (HTTP {resp.status}): {error_text}")
                     data = await resp.json()
                     return {
                         "id": int(data["id"]),
                         "username": str(data.get("username", raw_username)),
                     }
-        raise ValueError(f"osu! аккаунт `{raw_username}` не найден")
+        raise ValueError(f"osu! account `{raw_username}` was not found")
 
     async def get_user_by_id(self, user_id: int) -> dict:
         """Resolve the current public username for a stable osu! account ID."""
@@ -170,11 +170,11 @@ class OsuClientManager:
                 },
             ) as resp:
                 if resp.status == 404:
-                    raise ValueError(f"osu! аккаунт с ID `{numeric_id}` не найден")
+                    raise ValueError(f"osu! account with ID `{numeric_id}` was not found")
                 if resp.status != 200:
                     error_text = await resp.text()
                     raise RuntimeError(
-                        f"osu! API ошибка при поиске пользователя по ID (HTTP {resp.status}): {error_text}"
+                        f"osu! API user lookup by ID failed (HTTP {resp.status}): {error_text}"
                     )
                 data = await resp.json()
                 return {
@@ -210,5 +210,5 @@ class OsuClientManager:
                     raise RuntimeError("osu! API did not return a star rating")
                 return round(float(star_rating), 2)
     
-# Глобальный экземпляр менеджера
+# Global manager instance
 osu_manager = OsuClientManager()

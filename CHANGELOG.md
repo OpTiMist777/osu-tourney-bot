@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.6] - 2026-09-26
+
+English UI and configurable FreeMod score-multiplier release.
+
+### Changed
+
+- Fully translated player-facing Discord, osu! PM, Bancho IRC, API, startup,
+  validation, and diagnostic messages to English.
+- Translated legacy base commands and pool-management help text.
+- Added category-aware manual FreeMod score multipliers to the rulesets.
+- STD FreeMod/TB now exposes NoMod, Easy, Hidden, Hard Rock, and Flashlight
+  multipliers (`Easy ×1.75`; other mods currently `×1.0`).
+- Taiko and CTB FreeMod categories now explicitly expose NoMod, Hidden, and
+  Hard Rock multipliers (`×1.0`).
+- Fixed the Pool Commands cog lookup after its English rename.
+
+### Testing
+
+- `venv\\Scripts\\python.exe -m unittest discover -s tests -q` — 21 tests passed.
+- Python bytecode compilation, no-Cyrillic source scan, and `git diff --check`
+  completed successfully.
+
 ## [0.1.5.2] - 2026-09-20
 
 Player-facing UX and match-creation reliability hotfix.

@@ -13,6 +13,12 @@ CTB_RULES = ModeRules(
         "dt": ("NoFail", "Hidden"),
     },
     freemod_slot_required_mods={"hr": ("Hard Rock",)},
-    freemod_score_multipliers={},
+    freemod_score_multipliers={
+        "*": {
+            "NoMod": 1.0,
+            "Hidden": 1.0,
+            "Hard Rock": 1.0,
+        },
+    },
     allow_std_converts=True,
 )
