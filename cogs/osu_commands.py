@@ -347,22 +347,6 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             f"Room: [#{match['bancho_match_id']}](https://osu.ppy.sh/community/matches/{match['bancho_match_id']})\n"
             f"Pool: **{match['pool_name']}** · `{match['mode'].upper()}` · BO{match['best_of']}"
         )
-        # Do not reveal the roll in Discord until both players are confirmed
-        # inside the Bancho lobby and pick/ban is actually underway.
-        if match['status'] != 'waiting_players':
-            text += (
-                f"\nRoll: **{match['roll_winner']}** picks first; "
-                f"**{match['roll_loser']}** bans first."
-            )
-        if match['history']:
-            choices = []
-            for item in match['history']:
-                kind = 'TB' if item['kind'] == 'tiebreaker' else 'ban' if item['kind'] == 'ban' else 'pick'
-                slot = item.get('slot') or '—'
-                actor = item.get('player', 'automatic')
-                automatic = ' · automatic' if item.get('automatic') else ''
-                choices.append(f"`{slot}` — **{kind}**: {actor}{automatic}")
-            text += "\n\n**Action history**\n" + "\n".join(choices)
         status_colors = {
             'waiting_players': 0xFEE75C,
             'pickban': 0x5865F2,
@@ -384,20 +368,54 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             value=f"**{players[0]}** `{series.get(players[0], 0)}` — `{series.get(players[1], 0)}` **{players[1]}**",
             inline=False,
         )
+        feed_lines = []
+        ban_slots = [
+            item.get('slot') or '—'
+            for item in match.get('history', [])
+            if item.get('kind') == 'ban'
+        ]
+        if ban_slots:
+            embed.add_field(name="Bans", value=" · ".join(f"`{slot}`" for slot in ban_slots), inline=False)
         played_maps = match.get('played_maps', [])
-        if played_maps:
-            results = []
-            for number, played in enumerate(played_maps, start=1):
-                scores = played.get('scores', {})
-                first_score = scores.get(players[0], '?')
-                second_score = scores.get(players[1], '?')
-                label = "TB" if played.get('is_tiebreaker') else played['slot']
-                results.append(
-                    f"`#{number} {label}` — **{players[0]}** `{first_score:,}` : `{second_score:,}` **{players[1]}** · **{played['winner']}** won"
-                    if isinstance(first_score, int) and isinstance(second_score, int)
-                    else f"`#{number} {label}` — score: `{first_score}` : `{second_score}`"
-                )
-            embed.add_field(name="Map results", value="\n".join(results)[-1024:], inline=False)
+        played_by_slot = {}
+        for played in played_maps:
+            played_by_slot.setdefault(played.get('slot'), []).append(played)
+
+        def format_result(played: dict) -> str:
+            scores = played.get('scores', {})
+            first_score = scores.get(players[0], '?')
+            second_score = scores.get(players[1], '?')
+            label = "TB" if played.get('is_tiebreaker') else played['slot']
+            first_value = f"{first_score:,}" if isinstance(first_score, int) else str(first_score)
+            second_value = f"{second_score:,}" if isinstance(second_score, int) else str(second_score)
+            winner = played.get('winner')
+            if winner == players[0]:
+                first_result, second_result = "🟩 W", "🟥 L"
+            elif winner == players[1]:
+                first_result, second_result = "🟥 L", "🟩 W"
+            else:
+                first_result = second_result = "⚪ DRAW"
+            return (
+                f"`{label}` — {first_result} **{players[0]}** `{first_value}` — "
+                f"`{second_value}` **{players[1]}** {second_result}"
+            )
+
+        # Walk the persisted action history to preserve the exact match order.
+        # Pick actions themselves stay hidden; their completed map is rendered
+        # at that position in the feed.
+        for item in match.get('history', []):
+            kind = item.get('kind')
+            slot = item.get('slot')
+            if kind in {'pick', 'tiebreaker'} and played_by_slot.get(slot):
+                feed_lines.append(format_result(played_by_slot[slot].pop(0)))
+
+        # Keep the feed robust for old records that have results but no matching
+        # pick entry in history.
+        for remaining in played_by_slot.values():
+            for played in remaining:
+                feed_lines.append(format_result(played))
+        if feed_lines:
+            embed.add_field(name="Match feed", value="\n".join(feed_lines)[-1024:], inline=False)
         if match['status'] == 'waiting_players':
             joined = match.get('joined_players', [])
             embed.add_field(
@@ -406,31 +424,15 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                       "The roll starts after both players join the lobby.",
                 inline=False,
             )
-        elif match['status'] == 'pickban':
-            action = match['actions'][match['action_index']]
-            embed.add_field(
-                name="Current turn — in game",
-                value=f"**{action['player']}**: enter the **{'ban' if action['kind'] == 'ban' else 'pick'}** slot in the lobby chat.\n"
-                      f"Available: `{', '.join(match['available_slots'])}`",
-                inline=False,
-            )
-        elif match['status'] == 'waiting_ready':
-            embed.add_field(
-                name="Waiting for readiness",
-                value=f"Map `{match.get('selected_slot', '?')}` is set. The bot is waiting for `All players are ready` in MP chat.",
-                inline=False,
-            )
-        elif match['status'] == 'checking_settings':
-            embed.add_field(name="Lobby check", value="The bot is checking the map, mode, and mods before starting.", inline=False)
-        elif match['status'] == 'game_running':
-            embed.add_field(
-                name="Map started",
-                value=f"Playing `{match.get('selected_slot', '?')}`.",
-                inline=False,
-            )
+        elif match['status'] in {'pickban', 'waiting_ready', 'checking_settings', 'game_running'}:
+            embed.add_field(name="🔴 Live", value="\u200b", inline=False)
         elif match['status'] == 'completed':
             winner = max(series, key=series.get) if series else '—'
-            embed.add_field(name="Match complete", value=f"Winner: **{winner}**.", inline=False)
+            embed.add_field(
+                name="Winner",
+                value=f"**{winner}**",
+                inline=False,
+            )
         elif match['status'] == 'cancelled':
             embed.add_field(
                 name="Match cancelled",
@@ -1233,7 +1235,7 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 and any(player.get('status', '').casefold() != 'ready' for player in settings.get('players', []))
             ):
                 errors.append('not all players are Ready')
-            if errors:
+            if errors and not force_start:
                 logger.warning("Match #%s: !mp settings validation failed: %s", match_id, '; '.join(errors))
                 await self._post_match_log(
                     match_id, f"Lobby validation failed for {selected}: {'; '.join(errors)}.", level="WARNING",
@@ -1242,6 +1244,18 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
                 await self.irc.send_channel(channel, 'Lobby check failed: ' + '; '.join(errors) + '. Map/mods will be reapplied.')
                 await self._set_map_and_wait_ready(await get_match(match_id), selected)
             else:
+                if errors:
+                    logger.warning(
+                        "Match #%s: forced start ignores settings validation errors: %s",
+                        match_id,
+                        '; '.join(errors),
+                    )
+                    await self._post_match_log(
+                        match_id,
+                        f"Forced start: proceeding despite lobby validation errors for {selected}: "
+                        f"{'; '.join(errors)}.",
+                        level="WARNING",
+                    )
                 start_kind = 'forced start' if force_start else 'start'
                 logger.info("Match #%s: !mp settings confirmed; %s map %s", match_id, start_kind, selected)
                 await self._post_match_log(match_id, f"Lobby validation passed for {selected}; {start_kind}.")
@@ -1259,7 +1273,21 @@ class OsuCommands(commands.Cog, name="osu! multiplayer"):
             return
         except Exception:
             logger.exception("Match #%s: !mp settings validation error", match_id)
-            await update_match(match_id, {'status': 'waiting_ready'})
+            if force_start:
+                # The force-start deadline is terminal: a failed settings
+                # request must not send the match back into another ready timer.
+                logger.warning("Match #%s: forced start proceeding after settings check error", match_id)
+                await self._post_match_log(
+                    match_id,
+                    "Forced start: settings check failed, starting the map anyway.",
+                    level="WARNING",
+                )
+                await update_match(match_id, {'status': 'game_running', 'current_map_player_mods': {}})
+                await self.irc.send_channel(channel, '!mp aborttimer')
+                await self.irc.send_channel(channel, '!mp start 5')
+                await self._refresh_discord(match_id)
+            else:
+                await update_match(match_id, {'status': 'waiting_ready'})
         finally:
             if self._settings_tasks.get(match_id) is asyncio.current_task():
                 self._settings_tasks.pop(match_id, None)

@@ -111,7 +111,8 @@ function Start-Bot {
         $script:stderrTask = $script:process.StandardError.ReadLineAsync()
         $status.Text = 'Status: running'
         $start.Enabled = $false
-        $restart.Enabled = $false
+        # Restart must remain available while the bot is running.
+        $restart.Enabled = $true
         $stop.Enabled = $true
         Add-Log ('[' + (Get-Date -Format 'HH:mm:ss') + '] Bot started by launcher')
     } catch {

@@ -32,8 +32,15 @@ See [CHANGELOG.md](CHANGELOG.md) for the English release notes.
   validation succeeds.
 - Series scores and results for completed maps.
 
-The current match system does not calculate ratings. Glicko-2 and ladder
-ratings will be added in a separate development stage.
+The current match system does not calculate ratings. Glicko-2, individual
+ladder matchmaking, and a separate rated team mode will be added in a later
+development stage.
+
+Rated pool selection will use the global `Ranked` status. A pool will pass
+through Draft creation, beatmap/ruleset validation, and moderator review
+before it can enter any compatible rated queue, including individual and team
+matches. The pool remains restricted to its own game mode; explicit queue or
+rating-range restrictions may be added later as exceptions.
 
 ## Project structure
 

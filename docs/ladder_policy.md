@@ -9,6 +9,9 @@ It is a product policy, not yet implemented matchmaking code.
 - Each mode has an independent Glicko-2 rating.
 - Rating is unbounded: wins raise it and losses lower it.
 - Display ranks have 7 ranks with 5 divisions each; one rank spans 1000 rating points.
+- A separate rated team mode is planned in addition to individual ladder matches.
+- Team ratings, team membership, roster changes, placement matches, and rating
+  updates will be defined before the team queue is enabled.
 
 ## Match format by rating
 
@@ -24,9 +27,33 @@ The match format is selected from the relevant rating range at match creation.
 ## Pool eligibility
 
 - Any valid pool may be used in casual matches.
-- A pool may be used in rated ladder matches only when it passes the selected
-  mode's ranked-slot validation and is assigned to the applicable rating range.
+- A pool with the global `Ranked` status is approved for rated use in all
+  ranked queue types, including individual and team matches.
+- The pool still remains restricted to its own game mode and must pass that
+  mode's ranked-slot validation.
+- The planned pool-to-rated pipeline is:
+  1. create the pool as Draft;
+  2. parse and validate every beatmap against the mode ruleset;
+  3. submit the pool for moderator review;
+  4. mark it Ranked only after moderation approval;
+  5. optionally record explicit restrictions or moderator notes;
+  6. expose the pool to every rated matchmaking queue compatible with its mode.
+- Explicit restrictions are exceptions and must be stored separately from the
+  global `Ranked` status.
 - A match stores a pool snapshot so later edits never rewrite match history.
+
+### Planned pool rating metadata
+
+Each ranked pool will eventually carry explicit eligibility metadata instead of
+relying only on its global status:
+
+- supported game mode and key mode;
+- optional rating-range restrictions;
+- optional queue restrictions;
+- optional moderator notes and review history.
+
+This keeps casual pools available without allowing an unsuitable pool into a
+ranked queue.
 
 ## Roll and pick/ban order
 

@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions use Semantic Versioning where practical.
 
+## [0.1.6.1] - 2026-09-26
+
+Hotfix for live match output and in-game forced starts.
+
+### Fixed
+
+- Reworked the live match feed to preserve the configured action order,
+  display bans in a compact single-line block, and show map results with clear
+  win/loss indicators.
+- Simplified active-match status output to a concise `Live` indicator and kept
+  the series score and winner in their dedicated sections.
+- Fixed forced starts after failed `!mp settings` validation: the match no
+  longer returns to the ready timer and starts the map after the force-start
+  check, including when the settings request itself fails.
+
 ## [0.1.6] - 2026-09-26
 
 English UI and configurable FreeMod score-multiplier release.
